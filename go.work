@@ -1,7 +1,7 @@
 go 1.25.5
 
 use (
-	./examples/test-app
+	./examples/oauth-server
 	./internal/test
 	./pkg/core
 	./pkg/mongo

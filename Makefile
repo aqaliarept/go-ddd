@@ -12,4 +12,4 @@ test-coverage:
 lint:
 	tools/lint.sh
 
-ci: lint build test-coverage
+ci: lint build test-coverage test
