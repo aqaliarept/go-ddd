@@ -1,10 +1,7 @@
 ## `go-ddd-kit`: toolkit for Domain-Driven Design in Go
-[![Go Reference](https://pkg.go.dev/badge/github.com/aqaliarept/go-ddd-kit.svg)](https://pkg.go.dev/github.com/aqaliarept/go-ddd-kit)
+[![Go Reference](https://pkg.go.dev/badge/github.com/aqaliarept/go-ddd-kit.svg)](https://pkg.go.dev/github.com/aqaliarept/go-ddd-kit/pkg/core)
 [![codecov](https://codecov.io/gh/aqaliarept/go-ddd-kit/branch/main/graph/badge.svg)](https://codecov.io/gh/aqaliarept/go-ddd-kit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/core)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/core)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/mongo)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/mongo)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/postgres)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/postgres)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/redis)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/redis)
 
 `go-ddd-kit` makes it easier to build maintainable applications with aggregates, events, and repositories.
 
