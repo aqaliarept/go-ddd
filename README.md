@@ -1,16 +1,16 @@
 ## `go-ddd-kit`: toolkit for Domain-Driven Design in Go
-
+[![Go Reference](https://pkg.go.dev/badge/github.com/aqaliarept/go-ddd-kit.svg)](https://pkg.go.dev/github.com/aqaliarept/go-ddd-kit)
 [![codecov](https://codecov.io/gh/aqaliarept/go-ddd-kit/branch/main/graph/badge.svg)](https://codecov.io/gh/aqaliarept/go-ddd-kit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/core)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/core)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/mongo)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/mongo)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/postgres)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/postgres)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/redis)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/redis)
 
-`go-ddd-kit` making it easier to build maintainable applications with aggregates, events, and repositories.
+`go-ddd-kit` makes it easier to build maintainable applications with aggregates, events, and repositories.
 
 ## Goals
 
-After building several production applications in Go using Domain-Driven Design, the same problems were encountered repeatedly: how to structure aggregates, handle events, manage persistence, and deal with transactins and concurrency. When exploring the frameworks available in the Go ecosystem, many were found to focus on different aspects—some emphasized architectural patterns, others focused on specific storage backends, but a simple, cohesive approach to the core DDD concerns was not found.
+After building several production applications in Go using Domain-Driven Design, the same problems were encountered repeatedly: how to structure aggregates, handle events, manage persistence, and deal with transactions and concurrency. When exploring the frameworks available in the Go ecosystem, many were found to focus on different aspects—some emphasized architectural patterns, others focused on specific storage backends, but a simple, cohesive approach to the core DDD concerns was not found.
 
 `go-ddd-kit` was created to address these gaps. It's built from the ground up with production needs in mind, focusing on what actually matters when building real applications.
 
