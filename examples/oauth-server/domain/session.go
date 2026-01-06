@@ -1,3 +1,4 @@
+// Package domain provides domain models for the OAuth server example.
 package domain
 
 import (
@@ -8,6 +9,7 @@ import (
 	redis "github.com/aqaliarept/go-ddd-kit/pkg/redis"
 	"github.com/google/uuid"
 )
+
 
 //nolint:govet
 type SessionState struct {
@@ -63,8 +65,8 @@ type TokensReceived struct {
 }
 
 type RefreshQueued struct {
-	RefreshToken RefreshToken
 	At           Timestamp
+	RefreshToken RefreshToken
 }
 type ProcessRequestResult struct {
 	AccessToken AccessToken

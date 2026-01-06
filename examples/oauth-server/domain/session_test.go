@@ -26,9 +26,12 @@ func TestCompleteAuthorizationCodeFlow(t *testing.T) {
 	t.Run("Given a session in pending state When CompleteAuthorizationCodeFlow is called with valid nonce Then TokensReceived event is raised And state transitions to authenticated", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
 		events, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
@@ -56,10 +59,14 @@ func TestCompleteAuthorizationCodeFlow(t *testing.T) {
 		initialState := session.State()
 		require.Equal(t, statusPending, initialState.Status)
 
-		invalidNonce, _ := NewNonce("invalid-nonce")
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		invalidNonce, err := NewNonce("invalid-nonce")
+		require.NoError(t, err)
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
 		events, err := session.CompleteAuthorizationCodeFlow(invalidNonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
@@ -75,17 +82,23 @@ func TestRefreshTokens(t *testing.T) {
 	t.Run("Given a session in authenticated state When RefreshTokens is called Then TokensRefreshed event is raised And new tokens are set", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken1, _ := NewAccessToken("access-token-1")
-		refreshToken1, _ := NewRefreshToken("refresh-token-1")
-		tokenExpiry1, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken1, err := NewAccessToken("access-token-1")
+		require.NoError(t, err)
+		refreshToken1, err := NewRefreshToken("refresh-token-1")
+		require.NoError(t, err)
+		tokenExpiry1, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken1, refreshToken1, tokenExpiry1, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken1, refreshToken1, tokenExpiry1, sessionExpiration, now)
 		require.NoError(t, err)
 
-		accessToken2, _ := NewAccessToken("access-token-2")
-		refreshToken2, _ := NewRefreshToken("refresh-token-2")
-		tokenExpiry2, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken2, err := NewAccessToken("access-token-2")
+		require.NoError(t, err)
+		refreshToken2, err := NewRefreshToken("refresh-token-2")
+		require.NoError(t, err)
+		tokenExpiry2, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now2 := NewTimestamp(time.Now().Add(30 * time.Minute))
 
 		events, err := session.RefreshTokens(accessToken2, refreshToken2, tokenExpiry2, sessionExpiration, now2)
@@ -111,12 +124,15 @@ func TestProcessRequest(t *testing.T) {
 	t.Run("Given a session in authenticated state When ProcessRequest is called Then access token is returned And no refresh is queued if not needed", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		result, events, err := session.ProcessRequest(now)
@@ -129,12 +145,15 @@ func TestProcessRequest(t *testing.T) {
 	t.Run("Given a session in authenticated state When ProcessRequest is called after StartRefreshAfter Then RefreshQueued event is raised", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -160,12 +179,15 @@ func TestProcessRequest(t *testing.T) {
 	t.Run("Given a session in renew_ongoing state When ProcessRequest is called Then access token is returned", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -199,12 +221,15 @@ func TestShouldStartRefresh(t *testing.T) {
 	t.Run("Given a session in authenticated state When shouldStartRefresh is called before StartRefreshAfter Then returns false", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -218,12 +243,15 @@ func TestShouldStartRefresh(t *testing.T) {
 	t.Run("Given a session in authenticated state When shouldStartRefresh is called after StartRefreshAfter Then returns true", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -237,12 +265,15 @@ func TestShouldStartRefresh(t *testing.T) {
 	t.Run("Given a session in authenticated state When shouldStartRefresh is called exactly at StartRefreshAfter Then returns true", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -255,12 +286,15 @@ func TestShouldStartRefresh(t *testing.T) {
 	t.Run("Given a session in renew_ongoing state When shouldStartRefresh is called immediately after refresh queued Then returns false", func(t *testing.T) {
 		session, nonce, sessionExpiration := setup(t)
 
-		accessToken, _ := NewAccessToken("access-token-123")
-		refreshToken, _ := NewRefreshToken("refresh-token-456")
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken, err := NewAccessToken("access-token-123")
+		require.NoError(t, err)
+		refreshToken, err := NewRefreshToken("refresh-token-456")
+		require.NoError(t, err)
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExpiration, now)
 		require.NoError(t, err)
 
 		state := session.State()
@@ -280,7 +314,8 @@ func TestStartRefreshAfter(t *testing.T) {
 	t.Run("Given token expiry and current time When startRefreshAfter is called Then returns midpoint between now and expiry", func(t *testing.T) {
 		now := time.Now()
 		tokenExpiryTime := now.Add(1 * time.Hour)
-		tokenExpiry, _ := NewTokenExpiry(NewTimestamp(tokenExpiryTime))
+		tokenExpiry, err := NewTokenExpiry(NewTimestamp(tokenExpiryTime))
+		require.NoError(t, err)
 		nowTimestamp := NewTimestamp(now)
 
 		startRefresh := startRefreshAfter(tokenExpiry, nowTimestamp)
@@ -336,12 +371,15 @@ func TestFullTokenFlow(t *testing.T) {
 
 		require.Equal(t, statusPending, session.State().Status)
 
-		accessToken1, _ := NewAccessToken("access-token-1")
-		refreshToken1, _ := NewRefreshToken("refresh-token-1")
-		tokenExpiry1, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken1, err := NewAccessToken("access-token-1")
+		require.NoError(t, err)
+		refreshToken1, err := NewRefreshToken("refresh-token-1")
+		require.NoError(t, err)
+		tokenExpiry1, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now1 := NewTimestamp(time.Now())
 
-		_, err := session.CompleteAuthorizationCodeFlow(nonce, accessToken1, refreshToken1, tokenExpiry1, sessionExpiration, now1)
+		_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken1, refreshToken1, tokenExpiry1, sessionExpiration, now1)
 		require.NoError(t, err)
 		require.Equal(t, statusAuthenticated, session.State().Status)
 
@@ -351,13 +389,17 @@ func TestFullTokenFlow(t *testing.T) {
 		require.Equal(t, accessToken1, result.AccessToken)
 		require.Len(t, events, 1)
 
-		refreshQueued, _ := core.EventOfType[RefreshQueued](events)
+		refreshQueued, err := core.EventOfType[RefreshQueued](events)
+		require.NoError(t, err)
 		require.NotNil(t, refreshQueued)
 		require.Equal(t, statusRefreshOngoing, session.State().Status)
 
-		accessToken2, _ := NewAccessToken("access-token-2")
-		refreshToken2, _ := NewRefreshToken("refresh-token-2")
-		tokenExpiry2, _ := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		accessToken2, err := NewAccessToken("access-token-2")
+		require.NoError(t, err)
+		refreshToken2, err := NewRefreshToken("refresh-token-2")
+		require.NoError(t, err)
+		tokenExpiry2, err := NewTokenExpiry(NewTimestamp(time.Now().Add(1 * time.Hour)))
+		require.NoError(t, err)
 		now3 := NewTimestamp(time.Now().Add(32 * time.Minute))
 
 		_, err = session.RefreshTokens(accessToken2, refreshToken2, tokenExpiry2, sessionExpiration, now3)

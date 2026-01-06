@@ -161,41 +161,41 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("failed to exchange code for token: %w", exchangeErr)
 		}
 
-		expectedNonce, err := domain.NewNonce(state)
-		if err != nil {
-			return fmt.Errorf("invalid nonce: %w", err)
+		expectedNonce, nonceErr := domain.NewNonce(state)
+		if nonceErr != nil {
+			return fmt.Errorf("invalid nonce: %w", nonceErr)
 		}
 
-		accessToken, err := domain.NewAccessToken(token.AccessToken)
-		if err != nil {
-			return fmt.Errorf("invalid access token: %w", err)
+		accessToken, tokenErr := domain.NewAccessToken(token.AccessToken)
+		if tokenErr != nil {
+			return fmt.Errorf("invalid access token: %w", tokenErr)
 		}
 
 		refreshTokenStr := token.RefreshToken
 		if refreshTokenStr == "" {
 			refreshTokenStr = token.AccessToken
 		}
-		refreshToken, err := domain.NewRefreshToken(refreshTokenStr)
-		if err != nil {
-			return fmt.Errorf("invalid refresh token: %w", err)
+		refreshToken, refreshErr := domain.NewRefreshToken(refreshTokenStr)
+		if refreshErr != nil {
+			return fmt.Errorf("invalid refresh token: %w", refreshErr)
 		}
 
 		now := s.clock.UTCNow()
 		tokenExpiryTime := now.Time().Add(time.Until(token.Expiry))
-		tokenExpiry, err := domain.NewTokenExpiry(domain.NewTimestamp(tokenExpiryTime))
-		if err != nil {
-			return fmt.Errorf("invalid token expiry: %w", err)
+		tokenExpiry, expiryErr := domain.NewTokenExpiry(domain.NewTimestamp(tokenExpiryTime))
+		if expiryErr != nil {
+			return fmt.Errorf("invalid token expiry: %w", expiryErr)
 		}
 
 		sessionExpiration := 2 * time.Until(tokenExpiryTime)
-		sessionExp, err := domain.NewSessionExpiration(sessionExpiration)
-		if err != nil {
-			return fmt.Errorf("invalid session expiration: %w", err)
+		sessionExp, sessionExpErr := domain.NewSessionExpiration(sessionExpiration)
+		if sessionExpErr != nil {
+			return fmt.Errorf("invalid session expiration: %w", sessionExpErr)
 		}
 
-		_, err = session.CompleteAuthorizationCodeFlow(expectedNonce, accessToken, refreshToken, tokenExpiry, sessionExp, now)
-		if err != nil {
-			return fmt.Errorf("failed to receive tokens: %w", err)
+		_, completeErr := session.CompleteAuthorizationCodeFlow(expectedNonce, accessToken, refreshToken, tokenExpiry, sessionExp, now)
+		if completeErr != nil {
+			return fmt.Errorf("failed to receive tokens: %w", completeErr)
 		}
 
 		return repo.Save(ctx, session, redis.WithExpiration(session.SessionExpiration()))
