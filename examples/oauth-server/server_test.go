@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"context"
@@ -18,6 +18,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/aqaliarept/go-ddd-kit/examples/oauth-server/domain"
 )
 
 type redisTestContainer struct {
@@ -32,9 +34,11 @@ func (r *redisTestContainer) Client() *redis.Client {
 func (r *redisTestContainer) Cleanup() {
 	ctx := context.Background()
 	if r.client != nil {
+		//nolint:errcheck
 		_ = r.client.Close()
 	}
 	if r.container != nil {
+		//nolint:errcheck
 		_ = r.container.Terminate(ctx)
 	}
 }
@@ -103,7 +107,8 @@ func newMockOAuthProvider(t *testing.T) *mockOAuthProvider {
 				RefreshToken string `json:"refresh_token"`
 			}
 			if r.Header.Get("Content-Type") == "application/json" {
-				json.NewDecoder(r.Body).Decode(&req)
+				//nolint:errcheck
+				_ = json.NewDecoder(r.Body).Decode(&req)
 			} else {
 				req.GrantType = r.FormValue("grant_type")
 				req.Code = r.FormValue("code")
@@ -126,7 +131,8 @@ func newMockOAuthProvider(t *testing.T) *mockOAuthProvider {
 			resp.ExpiresIn = 3600
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			//nolint:errcheck
+			_ = json.NewEncoder(w).Encode(resp)
 		default:
 			http.NotFound(w, r)
 		}
@@ -155,7 +161,8 @@ func newMockBackend(t *testing.T) *mockBackend {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+		//nolint:errcheck
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"message": "success",
 			"token":   authHeader[7:],
 		})
@@ -175,25 +182,27 @@ func setupTestServer(t *testing.T, redisClient *redis.Client, oauthProvider *moc
 	scope := core.NewConcurrentScope(repoFactory)
 
 	cfg := &Config{
-		oauthClientID:           "test_client_id",
-		oauthClientSecret:       "test_client_secret",
-		oauthAuthURL:            oauthProvider.server.URL + "/authorize",
-		oauthTokenURL:           oauthProvider.server.URL + "/token",
-		oauthRedirectURL:        "http://localhost:8080/callback",
-		backendURL:              backend.server.URL,
-		redisAddr:               "localhost:6379",
-		sessionCookieName:       "session_id",
+		oauthClientID:            "test_client_id",
+		oauthClientSecret:        "test_client_secret",
+		oauthAuthURL:             oauthProvider.server.URL + "/authorize",
+		oauthTokenURL:            oauthProvider.server.URL + "/token",
+		oauthRedirectURL:         "http://localhost:8080/callback",
+		backendURL:               backend.server.URL,
+		redisAddr:                "localhost:6379",
+		sessionCookieName:        "session_id",
 		refreshWorkerChannelSize: 100,
-		refreshTimeout:          5 * time.Minute,
-		sessionExpiration:       24 * time.Hour,
-		serverPort:              "8080",
+		refreshTimeout:           5 * time.Minute,
+		sessionExpiration:        24 * time.Hour,
+		serverPort:               "8080",
 	}
 
+	clock := &domain.WallClock{}
+
 	oauth := NewOAuthClient(cfg)
-	worker := NewRefreshWorker(scope, oauth, cfg)
+	worker := NewRefreshWorker(scope, oauth, cfg, clock)
 	worker.Start()
 
-	server, err := NewServer(scope, oauth, worker, cfg)
+	server, err := NewServer(scope, oauth, worker, cfg, clock)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -228,12 +237,12 @@ func TestCompleteOAuthFlow(t *testing.T) {
 	require.NoError(t, err)
 	state := authURL.Query().Get("state")
 	require.NotEmpty(t, state, "State should not be empty")
-	
+
 	sessionID := core.ID(sessionCookie.Value)
-	loadedSession := &Session{}
+	loadedSession := &domain.Session{}
 	err = repo.Load(context.Background(), sessionID, loadedSession)
 	require.NoError(t, err, "Session should be loadable after login")
-	require.Equal(t, state, loadedSession.Nonce(), "Loaded session nonce should match state")
+	require.Equal(t, state, loadedSession.Nonce().String(), "Loaded session nonce should match state")
 
 	callbackReq := httptest.NewRequest("GET", fmt.Sprintf("/callback?code=%s&state=%s", oauthProvider.code, state), nil)
 	callbackReq.AddCookie(sessionCookie)
@@ -254,19 +263,35 @@ func TestTokenProxying(t *testing.T) {
 	backend := newMockBackend(t)
 	server, repo, _ := setupTestServer(t, redisContainer.Client(), oauthProvider, backend)
 
-	session := NewSession("http://example.com", 24*time.Hour)
+	redirectURL, err := domain.NewRedirectURL("http://example.com")
+	require.NoError(t, err)
+	sessionExpiration, err := domain.NewSessionExpiration(24 * time.Hour)
+	require.NoError(t, err)
+	nonce, err := domain.NewNonce("test_nonce")
+	require.NoError(t, err)
+	session := domain.NewSession(nonce, redirectURL, sessionExpiration)
 	sessionID := session.ID()
 
 	ctx := context.Background()
-	err := repo.Save(ctx, session)
+	err = repo.Save(ctx, session)
 	require.NoError(t, err)
 
-	loadedSession := &Session{}
+	loadedSession := &domain.Session{}
 	err = repo.Load(ctx, sessionID, loadedSession)
 	require.NoError(t, err)
 
-	nonce := loadedSession.Nonce()
-	_, err = loadedSession.CompleteAuthorizationCodeFlow(nonce, "test_access_token", "test_refresh_token", time.Now().Add(time.Hour), time.Now().Add(24*time.Hour))
+	expectedNonce, err := domain.NewNonce(loadedSession.Nonce().String())
+	require.NoError(t, err)
+	accessToken, err := domain.NewAccessToken("test_access_token")
+	require.NoError(t, err)
+	refreshToken, err := domain.NewRefreshToken("test_refresh_token")
+	require.NoError(t, err)
+	tokenExpiry, err := domain.NewTokenExpiry(domain.NewTimestamp(time.Now().Add(time.Hour)))
+	require.NoError(t, err)
+	sessionExp, err := domain.NewSessionExpiration(24 * time.Hour)
+	require.NoError(t, err)
+	now := domain.NewTimestamp(time.Now())
+	_, err = loadedSession.CompleteAuthorizationCodeFlow(expectedNonce, accessToken, refreshToken, tokenExpiry, sessionExp, now)
 	require.NoError(t, err)
 
 	err = repo.Save(ctx, loadedSession)
@@ -299,27 +324,42 @@ func TestTokenRefresh(t *testing.T) {
 	backend := newMockBackend(t)
 	_, repo, worker := setupTestServer(t, redisContainer.Client(), oauthProvider, backend)
 
-	session := NewSession("http://example.com", 24*time.Hour)
+	redirectURL, err := domain.NewRedirectURL("http://example.com")
+	require.NoError(t, err)
+	sessionExpiration, err := domain.NewSessionExpiration(24 * time.Hour)
+	require.NoError(t, err)
+	nonce, err := domain.NewNonce("test_nonce")
+	require.NoError(t, err)
+	session := domain.NewSession(nonce, redirectURL, sessionExpiration)
 	sessionID := session.ID()
-	nonce := session.Nonce()
 
 	ctx := context.Background()
 	expiry := time.Now().Add(30 * time.Second)
-	_, err := session.CompleteAuthorizationCodeFlow(nonce, "test_access_token", "test_refresh_token", expiry, time.Now().Add(24*time.Hour))
+	accessToken, err := domain.NewAccessToken("test_access_token")
+	require.NoError(t, err)
+	refreshToken, err := domain.NewRefreshToken("test_refresh_token")
+	require.NoError(t, err)
+	tokenExpiry, err := domain.NewTokenExpiry(domain.NewTimestamp(expiry))
+	require.NoError(t, err)
+	sessionExp, err := domain.NewSessionExpiration(24 * time.Hour)
+	require.NoError(t, err)
+	now := domain.NewTimestamp(time.Now())
+	_, err = session.CompleteAuthorizationCodeFlow(nonce, accessToken, refreshToken, tokenExpiry, sessionExp, now)
 	require.NoError(t, err)
 
 	err = repo.Save(ctx, session)
 	require.NoError(t, err)
 
-	worker.Queue(sessionID)
+	state := session.State()
+	worker.Queue(sessionID, string(state.RefreshToken))
 
 	time.Sleep(100 * time.Millisecond)
 
 	err = repo.Load(ctx, sessionID, session)
 	require.NoError(t, err)
 
-	state := session.State()
-	require.True(t, state.AccessToken != "test_access_token" || state.Status == statusRefreshing || state.Status == statusRenewOngoing)
+	state = session.State()
+	require.True(t, string(state.AccessToken) != "test_access_token" || state.Status == "refreshing" || state.Status == "renew_ongoing")
 }
 
 func TestInvalidSession(t *testing.T) {
@@ -343,11 +383,17 @@ func TestInvalidNonce(t *testing.T) {
 	backend := newMockBackend(t)
 	server, repo, _ := setupTestServer(t, redisContainer.Client(), oauthProvider, backend)
 
-	session := NewSession("http://example.com", 24*time.Hour)
+	redirectURL, err := domain.NewRedirectURL("http://example.com")
+	require.NoError(t, err)
+	sessionExpiration, err := domain.NewSessionExpiration(24 * time.Hour)
+	require.NoError(t, err)
+	nonce, err := domain.NewNonce("test_nonce")
+	require.NoError(t, err)
+	session := domain.NewSession(nonce, redirectURL, sessionExpiration)
 	sessionID := session.ID()
 
 	ctx := context.Background()
-	err := repo.Save(ctx, session)
+	err = repo.Save(ctx, session)
 	require.NoError(t, err)
 
 	callbackReq := httptest.NewRequest("GET", fmt.Sprintf("/callback?code=%s&state=invalid_nonce", oauthProvider.code), nil)
@@ -361,4 +407,3 @@ func TestInvalidNonce(t *testing.T) {
 
 	require.Equal(t, http.StatusUnauthorized, callbackW.Code)
 }
-

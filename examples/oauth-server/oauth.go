@@ -1,4 +1,5 @@
-package server
+// Package server provides OAuth server functionality.
+package main
 
 import (
 	"context"
@@ -50,4 +51,3 @@ func (c *OAuthClient) RefreshToken(ctx context.Context, refreshToken string) (*o
 	}
 	return token, nil
 }
-

@@ -9,15 +9,15 @@ import (
 	"syscall"
 	"time"
 
-	"main/internal/server"
-
 	core "github.com/aqaliarept/go-ddd-kit/pkg/core"
 	redispkg "github.com/aqaliarept/go-ddd-kit/pkg/redis"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/aqaliarept/go-ddd-kit/examples/oauth-server/domain"
 )
 
 func main() {
-	cfg, err := server.LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
@@ -30,18 +30,20 @@ func main() {
 	redisClient := redis.NewClient(opt)
 
 	ctx := context.Background()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Fatalf("failed to connect to Redis: %v", err)
+	if pingErr := redisClient.Ping(ctx).Err(); pingErr != nil {
+		log.Fatalf("failed to connect to Redis: %v", pingErr)
 	}
 
 	repoFactory := redispkg.NewRepositoryFactory(redisClient)
 	scope := core.NewConcurrentScope(repoFactory)
 
-	oauth := server.NewOAuthClient(cfg)
-	worker := server.NewRefreshWorker(scope, oauth, cfg)
+	clock := &domain.WallClock{}
+
+	oauth := NewOAuthClient(cfg)
+	worker := NewRefreshWorker(scope, oauth, cfg, clock)
 	worker.Start()
 
-	srv, err := server.NewServer(scope, oauth, worker, cfg)
+	srv, err := NewServer(scope, oauth, worker, cfg, clock)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}

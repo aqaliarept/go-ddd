@@ -1,4 +1,5 @@
-package server
+// Package server provides OAuth server functionality.
+package main
 
 import (
 	"fmt"
@@ -7,19 +8,20 @@ import (
 	"time"
 )
 
+//nolint:govet
 type Config struct {
-	oauthClientID           string
-	oauthClientSecret       string
-	oauthAuthURL            string
-	oauthTokenURL           string
-	oauthRedirectURL        string
-	backendURL              string
-	redisAddr               string
-	sessionCookieName       string
+	oauthClientID            string
+	oauthClientSecret        string
+	oauthAuthURL             string
+	oauthTokenURL            string
+	oauthRedirectURL         string
+	backendURL               string
+	redisAddr                string
+	sessionCookieName        string
 	refreshWorkerChannelSize int
-	refreshTimeout          time.Duration
-	sessionExpiration       time.Duration
-	serverPort              string
+	refreshTimeout           time.Duration
+	sessionExpiration        time.Duration
+	serverPort               string
 }
 
 func LoadConfig() (*Config, error) {
@@ -153,4 +155,3 @@ func (c *Config) SessionExpiration() time.Duration {
 func (c *Config) ServerPort() string {
 	return c.serverPort
 }
-

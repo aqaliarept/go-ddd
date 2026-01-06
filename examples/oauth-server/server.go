@@ -1,7 +1,9 @@
-package server
+package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,7 +14,18 @@ import (
 
 	core "github.com/aqaliarept/go-ddd-kit/pkg/core"
 	redis "github.com/aqaliarept/go-ddd-kit/pkg/redis"
+
+	"github.com/aqaliarept/go-ddd-kit/examples/oauth-server/domain"
 )
+
+func generateNonce() (string, error) {
+	bytes := make([]byte, 32)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bytes), nil
+}
 
 type Server struct {
 	scope  *core.ConcurrentScope
@@ -20,9 +33,10 @@ type Server struct {
 	worker *RefreshWorker
 	cfg    *Config
 	proxy  *httputil.ReverseProxy
+	clock  domain.Clock
 }
 
-func NewServer(scope *core.ConcurrentScope, oauth *OAuthClient, worker *RefreshWorker, cfg *Config) (*Server, error) {
+func NewServer(scope *core.ConcurrentScope, oauth *OAuthClient, worker *RefreshWorker, cfg *Config, clock domain.Clock) (*Server, error) {
 	backendURL, err := url.Parse(cfg.BackendURL())
 	if err != nil {
 		return nil, fmt.Errorf("invalid backend URL: %w", err)
@@ -39,6 +53,7 @@ func NewServer(scope *core.ConcurrentScope, oauth *OAuthClient, worker *RefreshW
 		worker: worker,
 		cfg:    cfg,
 		proxy:  proxy,
+		clock:  clock,
 	}, nil
 }
 
@@ -64,17 +79,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	redirectURL := r.URL.Query().Get("redirect_url")
-	if redirectURL == "" {
+	redirectURLStr := r.URL.Query().Get("redirect_url")
+	if redirectURLStr == "" {
 		http.Error(w, "redirect_url is required", http.StatusBadRequest)
 		return
 	}
 
-	session := NewSession(redirectURL, s.cfg.SessionExpiration())
+	redirectURL, err := domain.NewRedirectURL(redirectURLStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid redirect URL: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	nonceStr, err := generateNonce()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to generate nonce: %v", err), http.StatusInternalServerError)
+		return
+	}
+	nonce, err := domain.NewNonce(nonceStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to create nonce: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sessionExpiration, err := domain.NewSessionExpiration(s.cfg.SessionExpiration())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid session expiration: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	session := domain.NewSession(nonce, redirectURL, sessionExpiration)
 	sessionID := session.ID()
 
 	ctx := r.Context()
-	_, err := s.scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
+	_, err = s.scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
 		return repo.Save(ctx, session, redis.WithExpiration(session.SessionExpiration()))
 	})
 	if err != nil {
@@ -91,7 +129,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 	})
 
-	authURL := s.oauth.AuthCodeURL(session.Nonce())
+	authURL := s.oauth.AuthCodeURL(session.Nonce().String())
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -103,12 +141,12 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var session *Session
+	var session *domain.Session
 	_, err = s.scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
-		session = &Session{}
-		err := repo.Load(ctx, sessionID, session)
-		if err != nil {
-			return err
+		session = &domain.Session{}
+		loadErr := repo.Load(ctx, sessionID, session)
+		if loadErr != nil {
+			return loadErr
 		}
 
 		code := r.URL.Query().Get("code")
@@ -118,19 +156,44 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("code and state are required")
 		}
 
-		token, err := s.oauth.Exchange(ctx, code)
+		token, exchangeErr := s.oauth.Exchange(ctx, code)
+		if exchangeErr != nil {
+			return fmt.Errorf("failed to exchange code for token: %w", exchangeErr)
+		}
+
+		expectedNonce, err := domain.NewNonce(state)
 		if err != nil {
-			return fmt.Errorf("failed to exchange code for token: %w", err)
+			return fmt.Errorf("invalid nonce: %w", err)
 		}
 
-		tokenExpiry := time.Now().Add(time.Until(token.Expiry))
-		refreshTokenExpiry := time.Now().Add(24 * time.Hour)
-		refreshToken := token.RefreshToken
-		if refreshToken == "" {
-			refreshToken = token.AccessToken
+		accessToken, err := domain.NewAccessToken(token.AccessToken)
+		if err != nil {
+			return fmt.Errorf("invalid access token: %w", err)
 		}
 
-		_, err = session.CompleteAuthorizationCodeFlow(state, token.AccessToken, refreshToken, tokenExpiry, refreshTokenExpiry)
+		refreshTokenStr := token.RefreshToken
+		if refreshTokenStr == "" {
+			refreshTokenStr = token.AccessToken
+		}
+		refreshToken, err := domain.NewRefreshToken(refreshTokenStr)
+		if err != nil {
+			return fmt.Errorf("invalid refresh token: %w", err)
+		}
+
+		now := s.clock.UTCNow()
+		tokenExpiryTime := now.Time().Add(time.Until(token.Expiry))
+		tokenExpiry, err := domain.NewTokenExpiry(domain.NewTimestamp(tokenExpiryTime))
+		if err != nil {
+			return fmt.Errorf("invalid token expiry: %w", err)
+		}
+
+		sessionExpiration := 2 * time.Until(tokenExpiryTime)
+		sessionExp, err := domain.NewSessionExpiration(sessionExpiration)
+		if err != nil {
+			return fmt.Errorf("invalid session expiration: %w", err)
+		}
+
+		_, err = session.CompleteAuthorizationCodeFlow(expectedNonce, accessToken, refreshToken, tokenExpiry, sessionExp, now)
 		if err != nil {
 			return fmt.Errorf("failed to receive tokens: %w", err)
 		}
@@ -159,7 +222,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, session.GetRedirectURLForCallback(), http.StatusFound)
+	http.Redirect(w, r, session.GetRedirectURLForCallback().String(), http.StatusFound)
 }
 
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
@@ -170,17 +233,18 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var result ProcessRequestResult
+	var result domain.ProcessRequestResult
 	var events core.EventPack
 	_, err = s.scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
-		session := &Session{}
-		err := repo.Load(ctx, sessionID, session)
-		if err != nil {
-			return err
+		session := &domain.Session{}
+		loadErr := repo.Load(ctx, sessionID, session)
+		if loadErr != nil {
+			return loadErr
 		}
 
 		var processErr error
-		result, events, processErr = session.ProcessRequest()
+		now := s.clock.UTCNow()
+		result, events, processErr = session.ProcessRequest(now)
 		if processErr != nil {
 			return processErr
 		}
@@ -196,12 +260,12 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refreshQueuedEvents := core.EventsOfType[RefreshQueued](events)
+	refreshQueuedEvents := core.EventsOfType[domain.RefreshQueued](events)
 	if len(refreshQueuedEvents) > 0 {
-		s.worker.Queue(sessionID)
+		s.worker.Queue(sessionID, string(refreshQueuedEvents[0].RefreshToken))
 	}
 
-	r.Header.Set("Authorization", "Bearer "+result.AccessToken)
+	r.Header.Set("Authorization", "Bearer "+string(result.AccessToken))
 	r.Header.Del("Cookie")
 
 	s.proxy.ServeHTTP(w, r)
