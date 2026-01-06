@@ -10,9 +10,7 @@
 
 ## Goals
 
-After building several production applications in Go using Domain-Driven Design, the same problems were encountered repeatedly: how to structure aggregates, handle events, manage persistence, and deal with concurrency. When exploring the frameworks available in the Go ecosystem, many were found to focus on different aspects—some emphasized architectural patterns, others focused on specific storage backends, but a simple, cohesive approach to the core DDD concerns was not found.
-
-The frameworks explored for Go each had their strengths, but setting up aggregates with proper persistence and transaction handling was often found to require more configuration and boilerplate than desired. Some frameworks introduced layers of abstraction that, while powerful, added complexity for common use cases.
+After building several production applications in Go using Domain-Driven Design, the same problems were encountered repeatedly: how to structure aggregates, handle events, manage persistence, and deal with transactins and concurrency. When exploring the frameworks available in the Go ecosystem, many were found to focus on different aspects—some emphasized architectural patterns, others focused on specific storage backends, but a simple, cohesive approach to the core DDD concerns was not found.
 
 `go-ddd-kit` was created to address these gaps. It's built from the ground up with production needs in mind, focusing on what actually matters when building real applications.
 
