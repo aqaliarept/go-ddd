@@ -1,25 +1,10 @@
 version: "2"
 linters:
-  enable:
-    - staticcheck
-    - errcheck
-    - gosec
-    - govet
-    - err113
-    # - gocritic
-    - exhaustruct
-    # - intrange
-    # - bodyclose
-    # - contextcheck
-    # - goconst
-    # - noinlineerr
-    # - wrapcheck
-
-
+  enable-all: true
   settings:
     exhaustruct:
-      allow-empty-returns: true
-      allow-empty-declarations: 
+      allow-empty-returns: false
+      allow-empty-declarations: false
     staticcheck:
       checks:
         - all
