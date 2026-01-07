@@ -5,10 +5,27 @@ linters:
     - staticcheck
     - errcheck
     - err113
+    - gosec
+    - testpackage
+    # - contextcheck
+    # - gochecknoglobals
+    # - gochecknoinits
+    # - gocritic
+    # - godoclint
+    # - iface
+    # - intrange
+    # - modernize
+    # - nilerr
+    # - nilnesserr
+    # - nilnil
+    # - recvcheck
+    # - exhaustruct
   settings:
     exhaustruct:
       allow-empty-returns: false
       allow-empty-declarations: false
+      exclude:
+        - .*_test\.go$
     staticcheck:
       checks:
         - all

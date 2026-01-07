@@ -9,21 +9,20 @@ import (
 
 var (
 	errNonceEmpty                = errors.New("nonce cannot be empty")
-	errRedirectURLEmpty         = errors.New("redirect URL cannot be empty")
-	errAccessTokenEmpty         = errors.New("access token cannot be empty")
-	errRefreshTokenEmpty        = errors.New("refresh token cannot be empty")
-	errTokenExpiryZero          = errors.New("token expiry cannot be zero")
-	errRefreshTimeoutPositive   = errors.New("refresh timeout must be positive")
+	errRedirectURLEmpty          = errors.New("redirect URL cannot be empty")
+	errAccessTokenEmpty          = errors.New("access token cannot be empty")
+	errRefreshTokenEmpty         = errors.New("refresh token cannot be empty")
+	errTokenExpiryZero           = errors.New("token expiry cannot be zero")
+	errRefreshTimeoutPositive    = errors.New("refresh timeout must be positive")
 	errSessionExpirationPositive = errors.New("session expiration must be positive")
 )
-
 
 type SessionStatus string
 
 const (
-	statusPending        SessionStatus = "pending"
-	statusAuthenticated  SessionStatus = "authenticated"
-	statusRefreshOngoing SessionStatus = "refresh_ongoing"
+	StatusPending        SessionStatus = "pending"
+	StatusAuthenticated  SessionStatus = "authenticated"
+	StatusRefreshOngoing SessionStatus = "refresh_ongoing"
 )
 
 type Nonce string

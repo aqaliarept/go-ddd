@@ -382,7 +382,7 @@ func (a *Aggregate[T]) State() T {
 //	    return agg
 //	}
 func (a *Aggregate[T]) Initialize(id ID, created Event) {
-	if a.version > 0 {
+	if a.version > 0 || len(a.events) > 0 {
 		panic(errAggregateAlreadyInitialized)
 	}
 	a.id = id

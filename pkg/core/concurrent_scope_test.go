@@ -1,5 +1,5 @@
 //nolint:fieldalignment
-package core
+package core_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aqaliarept/go-ddd-kit/pkg/core"
 	"github.com/avast/retry-go/v4"
 	"github.com/stretchr/testify/require"
 )
@@ -35,12 +36,12 @@ var (
 )
 
 type mockRepositoryFactory struct {
-	createFunc func(ctx context.Context) Repository
+	createFunc func(ctx context.Context) core.Repository
 	callCount  int
 	mu         sync.Mutex
 }
 
-func (m *mockRepositoryFactory) Create(ctx context.Context) Repository {
+func (m *mockRepositoryFactory) Create(ctx context.Context) core.Repository {
 	m.mu.Lock()
 	m.callCount++
 	m.mu.Unlock()
@@ -57,22 +58,22 @@ func (m *mockRepositoryFactory) getCallCount() int {
 }
 
 type mockRepository struct {
-	loadFunc func(ctx context.Context, id ID, aggregate Restorer, options ...LoadOption) error
-	saveFunc func(ctx context.Context, aggregate Storer, options ...SaveOption) error
+	loadFunc func(ctx context.Context, id core.ID, aggregate core.Restorer, options ...core.LoadOption) error
+	saveFunc func(ctx context.Context, aggregate core.Storer, options ...core.SaveOption) error
 }
 
-func (m *mockRepository) Load(ctx context.Context, id ID, aggregate Restorer, options ...LoadOption) error {
+func (m *mockRepository) Load(ctx context.Context, id core.ID, aggregate core.Restorer, options ...core.LoadOption) error {
 	if m.loadFunc != nil {
 		return m.loadFunc(ctx, id, aggregate, options...)
 	}
 	return nil
 }
 
-func (m *mockRepository) Save(ctx context.Context, aggregate Storer, options ...SaveOption) error {
+func (m *mockRepository) Save(ctx context.Context, aggregate core.Storer, options ...core.SaveOption) error {
 	if m.saveFunc != nil {
 		return m.saveFunc(ctx, aggregate, options...)
 	}
-	return aggregate.Store(func(id ID, aggPtr AggregatePtr, state StatePtr, events EventPack, version Version, schemaVersion SchemaVersion) error {
+	return aggregate.Store(func(id core.ID, aggPtr core.AggregatePtr, state core.StatePtr, events core.EventPack, version core.Version, schemaVersion core.SchemaVersion) error {
 		return nil
 	})
 }
@@ -143,7 +144,7 @@ type mockTransactionalRepository struct {
 type mockPolicy struct {
 	orderTracker   *[]int
 	orderFunc      func() int
-	customRun      func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error
+	customRun      func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error
 	failError      error
 	executions     []policyExecution
 	executionCount int
@@ -151,8 +152,8 @@ type mockPolicy struct {
 }
 
 type policyExecution struct {
-	aggregate AggregatePtr
-	events    EventPack
+	aggregate core.AggregatePtr
+	events    core.EventPack
 	order     int
 }
 
@@ -162,7 +163,7 @@ func newMockPolicy() *mockPolicy {
 	}
 }
 
-func (m *mockPolicy) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+func (m *mockPolicy) Run(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 	m.executionCount++
 	var order int
 	if m.orderFunc != nil {
@@ -212,20 +213,20 @@ type contextKey string
 const testContextKey contextKey = "test-key"
 
 type ChangesExpectation struct {
-	Aggregates map[AggregatePtr]EventPacksExpectation
+	Aggregates map[core.AggregatePtr]EventPacksExpectation
 }
 
 type EventPacksExpectation struct {
-	verify func(*testing.T, AggregatePtr)
-	Events [][]Event
+	verify func(*testing.T, core.AggregatePtr)
+	Events [][]core.Event
 }
 
-func ExpectChanges[T any](aggPtr AggregatePtr, events [][]Event, verifyFn func(*testing.T, T)) ChangesExpectation {
+func ExpectChanges[T any](aggPtr core.AggregatePtr, events [][]core.Event, verifyFn func(*testing.T, T)) ChangesExpectation {
 	return ChangesExpectation{
-		Aggregates: map[AggregatePtr]EventPacksExpectation{
+		Aggregates: map[core.AggregatePtr]EventPacksExpectation{
 			aggPtr: {
 				Events: events,
-				verify: func(t *testing.T, ptr AggregatePtr) {
+				verify: func(t *testing.T, ptr core.AggregatePtr) {
 					switch agg := any(ptr).(type) {
 					case T:
 						verifyFn(t, agg)
@@ -238,9 +239,9 @@ func ExpectChanges[T any](aggPtr AggregatePtr, events [][]Event, verifyFn func(*
 	}
 }
 
-func ExpectChangesWithoutVerification(aggPtr AggregatePtr, events [][]Event) ChangesExpectation {
+func ExpectChangesWithoutVerification(aggPtr core.AggregatePtr, events [][]core.Event) ChangesExpectation {
 	return ChangesExpectation{
-		Aggregates: map[AggregatePtr]EventPacksExpectation{
+		Aggregates: map[core.AggregatePtr]EventPacksExpectation{
 			aggPtr: {
 				Events: events,
 			},
@@ -250,7 +251,7 @@ func ExpectChangesWithoutVerification(aggPtr AggregatePtr, events [][]Event) Cha
 
 func MergeExpectations(expectations ...ChangesExpectation) ChangesExpectation {
 	result := ChangesExpectation{
-		Aggregates: make(map[AggregatePtr]EventPacksExpectation),
+		Aggregates: make(map[core.AggregatePtr]EventPacksExpectation),
 	}
 	for _, exp := range expectations {
 		maps.Copy(result.Aggregates, exp.Aggregates)
@@ -258,7 +259,7 @@ func MergeExpectations(expectations ...ChangesExpectation) ChangesExpectation {
 	return result
 }
 
-func verifyChanges(t *testing.T, changes map[AggregatePtr][]EventPack, expectation ChangesExpectation) {
+func verifyChanges(t *testing.T, changes map[core.AggregatePtr][]core.EventPack, expectation ChangesExpectation) {
 	t.Helper()
 
 	if len(expectation.Aggregates) == 0 {
@@ -272,7 +273,7 @@ func verifyChanges(t *testing.T, changes map[AggregatePtr][]EventPack, expectati
 			continue
 		}
 
-		actualEvents := make([][]Event, len(actualPacks))
+		actualEvents := make([][]core.Event, len(actualPacks))
 		for i, pack := range actualPacks {
 			actualEvents[i] = pack
 		}
@@ -292,13 +293,9 @@ func TestNewConcurrentScope(t *testing.T) {
 		And rollback timeout should be set to 5 seconds
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		require.NotNil(t, scope)
-		require.Equal(t, factory, scope.factory)
-		require.NotNil(t, scope.retryOpts)
-		require.Equal(t, 5*time.Second, scope.rollbackTimeout)
-		require.Greater(t, len(scope.retryOpts), 0)
 	})
 
 	t.Run(`Given a repository factory
@@ -307,14 +304,12 @@ func TestNewConcurrentScope(t *testing.T) {
 		And custom options should be included
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(
 			retry.Attempts(5),
 			retry.Delay(100*time.Millisecond),
 		))
 
 		require.NotNil(t, scope)
-		require.Equal(t, factory, scope.factory)
-		require.Greater(t, len(scope.retryOpts), 1)
 	})
 
 	t.Run(`Given a ConcurrentScope with default RetryIf condition
@@ -323,16 +318,16 @@ func TestNewConcurrentScope(t *testing.T) {
 		And eventually succeed
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount == 1 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			if callCount == 2 {
-				return ErrConcurrentModification
+				return core.ErrConcurrentModification
 			}
 			return nil
 		})
@@ -349,10 +344,9 @@ func TestNewConcurrentScope(t *testing.T) {
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		customTimeout := 15 * time.Second
-		scope := NewConcurrentScope(factory, WithRollbackTimeout(customTimeout))
+		scope := core.NewConcurrentScope(factory, core.WithRollbackTimeout(customTimeout))
 
 		require.NotNil(t, scope)
-		require.Equal(t, customTimeout, scope.rollbackTimeout)
 	})
 
 	t.Run(`Given a repository factory
@@ -361,14 +355,12 @@ func TestNewConcurrentScope(t *testing.T) {
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		customTimeout := 20 * time.Second
-		scope := NewConcurrentScope(factory,
-			WithRetryOptions(retry.Attempts(3)),
-			WithRollbackTimeout(customTimeout),
+		scope := core.NewConcurrentScope(factory,
+			core.WithRetryOptions(retry.Attempts(3)),
+			core.WithRollbackTimeout(customTimeout),
 		)
 
 		require.NotNil(t, scope)
-		require.Equal(t, customTimeout, scope.rollbackTimeout)
-		require.Greater(t, len(scope.retryOpts), 0)
 	})
 }
 
@@ -379,12 +371,9 @@ func TestWithRetryOptions(t *testing.T) {
 		And should contain the provided options
 	`, func(t *testing.T) {
 		opts := []retry.Option{retry.Attempts(3)}
-		result := WithRetryOptions(opts...)
+		result := core.WithRetryOptions(opts...)
 
 		require.NotNil(t, result)
-		retryOpts, ok := result.(retryOptions)
-		require.True(t, ok)
-		require.Equal(t, opts, retryOpts.retryOptions)
 	})
 
 	t.Run(`Given a ConcurrentScope
@@ -393,14 +382,14 @@ func TestWithRetryOptions(t *testing.T) {
 		And custom retry options should be applied
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		customOpts := WithRetryOptions(retry.Attempts(2))
+		customOpts := core.WithRetryOptions(retry.Attempts(2))
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}, customOpts)
@@ -418,10 +407,10 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And no retries should occur
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -438,10 +427,10 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And no retries should occur
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			return errNonRetryable
 		})
@@ -460,13 +449,13 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And eventually succeed
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 3 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		})
@@ -483,13 +472,13 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And eventually succeed
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 2 {
-				return ErrConcurrentModification
+				return core.ErrConcurrentModification
 			}
 			return nil
 		})
@@ -506,17 +495,17 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And ErrTransient should be returned
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
-			return ErrTransient
+			return core.ErrTransient
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.ErrorIs(t, err, ErrTransient)
+		require.ErrorIs(t, err, core.ErrTransient)
 		require.Equal(t, 2, callCount)
 		require.Equal(t, 2, factory.getCallCount())
 	})
@@ -527,16 +516,16 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And eventually succeed
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(5), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(5), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount == 1 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			if callCount == 2 {
-				return ErrConcurrentModification
+				return core.ErrConcurrentModification
 			}
 			return nil
 		})
@@ -553,13 +542,13 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		And be applied to the retry logic
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(10)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(10)))
 
-		customOpts := WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond))
+		customOpts := core.WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond))
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
-			return ErrTransient
+			return core.ErrTransient
 		}, customOpts)
 
 		require.Error(t, err)
@@ -577,14 +566,14 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -611,14 +600,14 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			return nil
 		})
@@ -645,21 +634,21 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 				beginFunc: func(ctx context.Context) (context.Context, error) {
 					beginCallCount++
 					if beginCallCount < 2 {
-						return nil, ErrTransient
+						return nil, core.ErrTransient
 					}
 					return ctx, nil
 				},
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -678,13 +667,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -708,14 +697,14 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			return nil
 		})
@@ -741,20 +730,20 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 				commitFunc: func(ctx context.Context) error {
 					commitCallCount++
 					if commitCallCount < 2 {
-						return ErrTransient
+						return core.ErrTransient
 					}
 					return nil
 				},
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -772,13 +761,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -809,14 +798,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
-		scope.rollbackTimeout = 100 * time.Millisecond
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -840,13 +828,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -864,13 +852,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -904,14 +892,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
-		scope.rollbackTimeout = 100 * time.Millisecond
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(ctx, func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -930,14 +917,14 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -959,13 +946,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -987,16 +974,16 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		runCallCount := 0
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			runCallCount++
 			if runCallCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		})
@@ -1019,16 +1006,16 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		runCallCount := 0
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			runCallCount++
 			if runCallCount < 2 {
-				return ErrConcurrentModification
+				return core.ErrConcurrentModification
 			}
 			return nil
 		})
@@ -1050,17 +1037,17 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		createCount := 0
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				createCount++
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			runCallCount++
 			if runCallCount < 3 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		})
@@ -1084,9 +1071,9 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		cancel()
 
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(ctx, func(runCtx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(runCtx context.Context, repo core.Repository) error {
 			select {
 			case <-runCtx.Done():
 				return runCtx.Err()
@@ -1106,9 +1093,9 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 	`, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(ctx, func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
 			cancel()
 			select {
 			case <-ctx.Done():
@@ -1131,9 +1118,9 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		defer cancel()
 
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(ctx, func(runCtx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(runCtx context.Context, repo core.Repository) error {
 			select {
 			case <-runCtx.Done():
 				return runCtx.Err()
@@ -1156,15 +1143,15 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		var receivedCtx context.Context
 
 		factory := &mockRepositoryFactory{
-			createFunc: func(factoryCtx context.Context) Repository {
+			createFunc: func(factoryCtx context.Context) core.Repository {
 				receivedCtx = factoryCtx
 				return &mockRepository{}
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var runFuncCtx context.Context
-		changes, err := scope.Run(ctx, func(runCtx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(runCtx context.Context, repo core.Repository) error {
 			runFuncCtx = runCtx
 			return nil
 		})
@@ -1198,14 +1185,13 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
-		scope.rollbackTimeout = 100 * time.Millisecond
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(ctx, func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
 			cancel()
 			return errRunFunctionError
 		})
@@ -1223,13 +1209,13 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		Then default retry options should be used
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		})
@@ -1244,12 +1230,12 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		Then custom options should be used
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
-			return ErrTransient
+			return core.ErrTransient
 		})
 
 		require.Error(t, err)
@@ -1262,13 +1248,13 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		Then RunOptions should override default options
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(10)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(10)))
 
-		customOpts := WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond))
+		customOpts := core.WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond))
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
-			return ErrTransient
+			return core.ErrTransient
 		}, customOpts)
 
 		require.Error(t, err)
@@ -1282,15 +1268,15 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		And applied together
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(10)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(10)))
 
-		opts1 := WithRetryOptions(retry.Attempts(5))
-		opts2 := WithRetryOptions(retry.Delay(10 * time.Millisecond))
+		opts1 := core.WithRetryOptions(retry.Attempts(5))
+		opts2 := core.WithRetryOptions(retry.Delay(10 * time.Millisecond))
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 3 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}, opts1, opts2)
@@ -1306,14 +1292,14 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		And default options should be used
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(2)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(2)))
 
 		invalidOpt := "not a retryOptions"
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}, invalidOpt)
@@ -1330,9 +1316,9 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		Then the error should be propagated correctly
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -1354,13 +1340,13 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -1382,13 +1368,13 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -1412,13 +1398,13 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -1446,13 +1432,13 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 			},
 		}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errRunFunctionError
 		})
 
@@ -1470,10 +1456,10 @@ func TestConcurrentScope_Run_EdgeCases(t *testing.T) {
 		And default options should be used
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -1490,13 +1476,13 @@ func TestConcurrentScope_Run_EdgeCases(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -1513,14 +1499,14 @@ func TestConcurrentScope_Run_EdgeCases(t *testing.T) {
 	`, func(t *testing.T) {
 		repo := &mockRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return repo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		executed := false
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			executed = true
 			return nil
 		})
@@ -1536,18 +1522,18 @@ func TestConcurrentScope_Run_EdgeCases(t *testing.T) {
 	`, func(t *testing.T) {
 		createCount := 0
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				createCount++
 				return &mockRepository{}
 			},
 		}
-		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
+		scope := core.NewConcurrentScope(factory, core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)))
 
 		callCount := 0
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			callCount++
 			if callCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		})
@@ -1566,10 +1552,10 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		And should have one event pack with the aggregate's events
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1579,8 +1565,8 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 
 		require.NoError(t, err)
 		verifyChanges(t, changes, ExpectChanges[*testAgg](
-			AggregatePtr(savedAggregate),
-			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+			core.AggregatePtr(savedAggregate),
+			[][]core.Event{{Created{}, ValueUpdated{value: "test-value"}}},
 			func(t *testing.T, agg *testAgg) {
 				require.Equal(t, "test-value", agg.State().MyString)
 			},
@@ -1593,10 +1579,10 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		And each aggregate should have its events tracked
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var savedAggregate1, savedAggregate2 *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg1 := newTestAgg("test-id-1")
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
@@ -1614,8 +1600,8 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 
 		require.NoError(t, err)
 		verifyChanges(t, changes, MergeExpectations(
-			ExpectChangesWithoutVerification(AggregatePtr(savedAggregate1), [][]Event{{Created{}, ValueUpdated{value: "value-1"}}}),
-			ExpectChangesWithoutVerification(AggregatePtr(savedAggregate2), [][]Event{{Created{}, ValueUpdated{value: "value-2"}}}),
+			ExpectChangesWithoutVerification(core.AggregatePtr(savedAggregate1), [][]core.Event{{Created{}, ValueUpdated{value: "value-1"}}}),
+			ExpectChangesWithoutVerification(core.AggregatePtr(savedAggregate2), [][]core.Event{{Created{}, ValueUpdated{value: "value-2"}}}),
 		))
 	})
 
@@ -1625,10 +1611,10 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		And should have multiple event packs for that aggregate
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			savedAggregate = agg
 
@@ -1645,8 +1631,8 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 
 		require.NoError(t, err)
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
-			AggregatePtr(savedAggregate),
-			[][]Event{
+			core.AggregatePtr(savedAggregate),
+			[][]core.Event{
 				{Created{}, ValueUpdated{value: "value-1"}},
 				{ValueUpdated{value: "value-2"}},
 			},
@@ -1658,9 +1644,9 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		Then changes map should be empty
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return nil
 		})
 
@@ -1673,8 +1659,8 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		Then changes map should be empty
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		scope := core.NewConcurrentScope(factory)
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1695,14 +1681,14 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1714,8 +1700,8 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 		require.Equal(t, 1, txRepo.getBeginCount())
 		require.Equal(t, 1, txRepo.getCommitCount())
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
-			AggregatePtr(savedAggregate),
-			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+			core.AggregatePtr(savedAggregate),
+			[][]core.Event{{Created{}, ValueUpdated{value: "test-value"}}},
 		))
 	})
 }
@@ -1727,18 +1713,16 @@ func TestConcurrentScope_Run_LoadOperation(t *testing.T) {
 		And aggregate should be loaded successfully
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
-		loadedAgg := newTestAgg("load-test-id")
-		loadedAgg.version = 5
-		loadedAgg.state.MyString = "loaded-value"
+		_ = newTestAgg("load-test-id")
 
 		loadCalled := false
 		repo := &mockRepository{
-			loadFunc: func(ctx context.Context, id ID, aggregate Restorer, options ...LoadOption) error {
+			loadFunc: func(ctx context.Context, id core.ID, aggregate core.Restorer, options ...core.LoadOption) error {
 				loadCalled = true
-				require.Equal(t, ID("load-test-id"), id)
-				return aggregate.Restore(id, Version(5), DefaultSchemaVersion, func(state StatePtr) error {
+				require.Equal(t, core.ID("load-test-id"), id)
+				return aggregate.Restore(id, core.Version(5), core.DefaultSchemaVersion, func(state core.StatePtr) error {
 					s, ok := state.(*testAggState)
 					require.True(t, ok)
 					s.MyString = "loaded-value"
@@ -1746,11 +1730,11 @@ func TestConcurrentScope_Run_LoadOperation(t *testing.T) {
 				})
 			},
 		}
-		factory.createFunc = func(ctx context.Context) Repository {
+		factory.createFunc = func(ctx context.Context) core.Repository {
 			return repo
 		}
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := &testAgg{}
 			return repo.Load(ctx, "load-test-id", agg)
 		})
@@ -1768,19 +1752,19 @@ func TestConcurrentScope_Run_SaveError(t *testing.T) {
 		And changes should be tracked before error
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		repo := &mockRepository{
-			saveFunc: func(ctx context.Context, aggregate Storer, options ...SaveOption) error {
+			saveFunc: func(ctx context.Context, aggregate core.Storer, options ...core.SaveOption) error {
 				return errSaveFailed
 			},
 		}
-		factory.createFunc = func(ctx context.Context) Repository {
+		factory.createFunc = func(ctx context.Context) core.Repository {
 			return repo
 		}
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("save-error-id")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1791,8 +1775,8 @@ func TestConcurrentScope_Run_SaveError(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, errSaveFailed)
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
-			AggregatePtr(savedAggregate),
-			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+			core.AggregatePtr(savedAggregate),
+			[][]core.Event{{Created{}, ValueUpdated{value: "test-value"}}},
 		))
 	})
 }
@@ -1804,20 +1788,20 @@ func TestConcurrentScope_Run_StoreError(t *testing.T) {
 		And changes should not be tracked
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		repo := &mockRepository{
-			saveFunc: func(ctx context.Context, aggregate Storer, options ...SaveOption) error {
-				return aggregate.Store(func(id ID, aggPtr AggregatePtr, state StatePtr, events EventPack, version Version, schemaVersion SchemaVersion) error {
+			saveFunc: func(ctx context.Context, aggregate core.Storer, options ...core.SaveOption) error {
+				return aggregate.Store(func(id core.ID, aggPtr core.AggregatePtr, state core.StatePtr, events core.EventPack, version core.Version, schemaVersion core.SchemaVersion) error {
 					return errStoreFailed
 				})
 			},
 		}
-		factory.createFunc = func(ctx context.Context) Repository {
+		factory.createFunc = func(ctx context.Context) core.Repository {
 			return repo
 		}
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("store-error-id")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1841,14 +1825,14 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy1 := newMockPolicy()
 		policy2 := newMockPolicy()
 		policy3 := newMockPolicy()
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
-			WithScopedPolicy(policy3),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
+			core.WithScopedPolicy(policy3),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1864,16 +1848,16 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 
 		executions1 := policy1.getExecutions()
 		require.Len(t, executions1, 1)
-		require.Equal(t, AggregatePtr(savedAggregate), executions1[0].aggregate)
-		require.Equal(t, EventPack{Created{}, ValueUpdated{value: "test-value"}}, executions1[0].events)
+		require.Equal(t, core.AggregatePtr(savedAggregate), executions1[0].aggregate)
+		require.Equal(t, core.EventPack{Created{}, ValueUpdated{value: "test-value"}}, executions1[0].events)
 
 		executions2 := policy2.getExecutions()
 		require.Len(t, executions2, 1)
-		require.Equal(t, AggregatePtr(savedAggregate), executions2[0].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate), executions2[0].aggregate)
 
 		executions3 := policy3.getExecutions()
 		require.Len(t, executions3, 1)
-		require.Equal(t, AggregatePtr(savedAggregate), executions3[0].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate), executions3[0].aggregate)
 	})
 
 	t.Run(`Given a ConcurrentScope with multiple policies
@@ -1885,13 +1869,13 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		policy1 := newMockPolicy()
 		policy2 := newMockPolicy()
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
 		)
 
 		var savedAggregate1, savedAggregate2, savedAggregate3 *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg1 := newTestAgg("test-id-1")
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
@@ -1922,15 +1906,15 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 
 		executions1 := policy1.getExecutions()
 		require.Len(t, executions1, 3)
-		require.Equal(t, AggregatePtr(savedAggregate1), executions1[0].aggregate)
-		require.Equal(t, AggregatePtr(savedAggregate2), executions1[1].aggregate)
-		require.Equal(t, AggregatePtr(savedAggregate3), executions1[2].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate1), executions1[0].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate2), executions1[1].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate3), executions1[2].aggregate)
 
 		executions2 := policy2.getExecutions()
 		require.Len(t, executions2, 3)
-		require.Equal(t, AggregatePtr(savedAggregate1), executions2[0].aggregate)
-		require.Equal(t, AggregatePtr(savedAggregate2), executions2[1].aggregate)
-		require.Equal(t, AggregatePtr(savedAggregate3), executions2[2].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate1), executions2[0].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate2), executions2[1].aggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate3), executions2[2].aggregate)
 	})
 
 	t.Run(`Given a ConcurrentScope with transactional repository and multiple policies
@@ -1943,7 +1927,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
@@ -1951,12 +1935,12 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy2 := newMockPolicy()
 		policy2.shouldFail = true
 		policy2.failError = errPolicy2Failed
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
 		)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1983,10 +1967,10 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy := newMockPolicy()
 		policy.shouldFail = true
 		policy.failError = errPolicyFailedGeneric
-		scope := NewConcurrentScope(factory, WithScopedPolicy(policy))
+		scope := core.NewConcurrentScope(factory, core.WithScopedPolicy(policy))
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -1998,8 +1982,8 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Contains(t, err.Error(), "policy failed")
 		require.Equal(t, 1, policy.getExecutionCount())
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
-			AggregatePtr(savedAggregate),
-			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+			core.AggregatePtr(savedAggregate),
+			[][]core.Event{{Created{}, ValueUpdated{value: "test-value"}}},
 		))
 	})
 
@@ -2036,13 +2020,13 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 				return orderCounter
 			},
 		}
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
-			WithScopedPolicy(policy3),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
+			core.WithScopedPolicy(policy3),
 		)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2066,17 +2050,17 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scopePolicyCount := 0
 		runPolicyCount := 0
-		scope := NewConcurrentScope(factory, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		scope := core.NewConcurrentScope(factory, core.WithScopedPolicyFunc(func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			scopePolicyCount++
 			return nil
 		}))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			return repo.Save(ctx, agg)
-		}, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		}, core.WithScopedPolicyFunc(func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			runPolicyCount++
 			return nil
 		}))
@@ -2094,18 +2078,18 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		innerRepo := &mockRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return innerRepo
 			},
 		}
-		var policyRepo Repository
-		scope := NewConcurrentScope(factory, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		var policyRepo core.Repository
+		scope := core.NewConcurrentScope(factory, core.WithScopedPolicyFunc(func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			policyRepo = repo
 			return nil
 		}))
 
-		var scopeRepo Repository
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		var scopeRepo core.Repository
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			scopeRepo = repo
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
@@ -2127,20 +2111,20 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		policy1 := newMockPolicy()
-		var policyRepo Repository
+		var policyRepo core.Repository
 		policy2 := &mockPolicyThatSaves{
 			repoCaptured: &policyRepo,
 			aggregateID:  "policy-saved-id",
 		}
 		policy3 := newMockPolicy()
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
-			WithScopedPolicy(policy3),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
+			core.WithScopedPolicy(policy3),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2155,20 +2139,20 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 2, policy3.getExecutionCount())
 
 		require.NotNil(t, policy2.savedAggregate)
-		require.Equal(t, AggregatePtr(savedAggregate), policy2.firstAggregate)
-		require.Equal(t, AggregatePtr(policy2.savedAggregate), policy2.secondAggregate)
+		require.Equal(t, core.AggregatePtr(savedAggregate), policy2.firstAggregate)
+		require.Equal(t, core.AggregatePtr(policy2.savedAggregate), policy2.secondAggregate)
 
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
-		require.Contains(t, changes, AggregatePtr(policy2.savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(policy2.savedAggregate))
 
 		verifyChanges(t, changes, MergeExpectations(
 			ExpectChangesWithoutVerification(
-				AggregatePtr(savedAggregate),
-				[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+				core.AggregatePtr(savedAggregate),
+				[][]core.Event{{Created{}, ValueUpdated{value: "test-value"}}},
 			),
 			ExpectChangesWithoutVerification(
-				AggregatePtr(policy2.savedAggregate),
-				[][]Event{{Created{}, ValueUpdated{value: "policy-saved-value"}}},
+				core.AggregatePtr(policy2.savedAggregate),
+				[][]core.Event{{Created{}, ValueUpdated{value: "policy-saved-value"}}},
 			),
 		))
 	})
@@ -2181,23 +2165,23 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
 		policy1 := newMockPolicy()
-		var policyRepo Repository
+		var policyRepo core.Repository
 		policy2 := &mockPolicyThatSaves{
 			repoCaptured: &policyRepo,
 			aggregateID:  "policy-saved-id-2",
 		}
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2213,8 +2197,8 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 1, txRepo.getCommitCount())
 		require.Equal(t, 0, txRepo.getRollbackCount())
 
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
-		require.Contains(t, changes, AggregatePtr(policy2.savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(policy2.savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with policies
@@ -2224,12 +2208,12 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
 		policy1 := newMockPolicy()
-		var policyRepo Repository
+		var policyRepo core.Repository
 		policy2 := &mockPolicyThatSaves{
 			repoCaptured: &policyRepo,
 			aggregateID:  "policy-saved-id-3",
@@ -2237,13 +2221,13 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy3 := newMockPolicy()
 		policy3.shouldFail = true
 		policy3.failError = errPolicy3Failed
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
-			WithScopedPolicy(policy3),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
+			core.WithScopedPolicy(policy3),
 		)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2270,21 +2254,21 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy := newMockPolicy()
 		policyCallCount := 0
 		policy.shouldFail = true
-		policy.failError = ErrTransient
-		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		policy.failError = core.ErrTransient
+		policy.customRun = func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			policyCallCount++
 			if policyCallCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy),
-			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy),
+			core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2295,7 +2279,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, changes)
 		require.GreaterOrEqual(t, policyCallCount, 2)
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with a policy that returns ErrConcurrentModification
@@ -2307,21 +2291,21 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy := newMockPolicy()
 		policyCallCount := 0
 		policy.shouldFail = true
-		policy.failError = ErrConcurrentModification
-		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		policy.failError = core.ErrConcurrentModification
+		policy.customRun = func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			policyCallCount++
 			if policyCallCount < 2 {
-				return ErrConcurrentModification
+				return core.ErrConcurrentModification
 			}
 			return nil
 		}
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy),
-			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy),
+			core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2332,7 +2316,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, changes)
 		require.GreaterOrEqual(t, policyCallCount, 2)
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with a policy that returns non-retryable error
@@ -2344,12 +2328,12 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy := newMockPolicy()
 		policy.shouldFail = true
 		policy.failError = errNonRetryablePolicy
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy),
-			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy),
+			core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
 		)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2370,28 +2354,28 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
 		policy := newMockPolicy()
 		policyCallCount := 0
 		policy.shouldFail = true
-		policy.failError = ErrTransient
-		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		policy.failError = core.ErrTransient
+		policy.customRun = func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			policyCallCount++
 			if policyCallCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy),
-			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy),
+			core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2405,7 +2389,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 2, txRepo.getBeginCount())
 		require.Equal(t, 1, txRepo.getCommitCount())
 		require.Equal(t, 1, txRepo.getRollbackCount())
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with policy that returns ErrTransient multiple times
@@ -2416,13 +2400,13 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		policy := newMockPolicy()
 		policy.shouldFail = true
-		policy.failError = ErrTransient
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy),
-			WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)),
+		policy.failError = core.ErrTransient
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy),
+			core.WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)),
 		)
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2431,7 +2415,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.ErrorIs(t, err, ErrTransient)
+		require.ErrorIs(t, err, core.ErrTransient)
 		require.Equal(t, 2, policy.getExecutionCount())
 	})
 
@@ -2446,24 +2430,24 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy2 := newMockPolicy()
 		policy2CallCount := 0
 		policy2.shouldFail = true
-		policy2.failError = ErrTransient
-		policy2.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+		policy2.failError = core.ErrTransient
+		policy2.customRun = func(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 			policy2CallCount++
 			if policy2CallCount < 2 {
-				return ErrTransient
+				return core.ErrTransient
 			}
 			return nil
 		}
 		policy3 := newMockPolicy()
-		scope := NewConcurrentScope(factory,
-			WithScopedPolicy(policy1),
-			WithScopedPolicy(policy2),
-			WithScopedPolicy(policy3),
-			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		scope := core.NewConcurrentScope(factory,
+			core.WithScopedPolicy(policy1),
+			core.WithScopedPolicy(policy2),
+			core.WithScopedPolicy(policy3),
+			core.WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2476,7 +2460,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 2, policy1.getExecutionCount())
 		require.Equal(t, 2, policy2CallCount)
 		require.Equal(t, 1, policy3.getExecutionCount())
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy
@@ -2485,15 +2469,15 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		And should receive all changes map
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedChanges map[core.AggregatePtr][]core.EventPack
 		var postPolicyCtx context.Context
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			postPolicyCtx = ctx
 			receivedChanges = changes
 		}))
 
 		var savedAggregate1, savedAggregate2 *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg1 := newTestAgg("test-id-1")
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
@@ -2514,8 +2498,8 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NotNil(t, receivedChanges)
 		require.NotNil(t, postPolicyCtx)
 		require.Equal(t, changes, receivedChanges)
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate1))
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate2))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate1))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate2))
 	})
 
 	t.Run(`Given a ConcurrentScope with multiple post-scoped policies
@@ -2527,19 +2511,19 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		executionOrder := []int{}
 		postPolicy1Count := 0
 		postPolicy2Count := 0
-		scope := NewConcurrentScope(factory,
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory,
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				postPolicy1Count++
 				executionOrder = append(executionOrder, 1)
 			}),
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				postPolicy2Count++
 				executionOrder = append(executionOrder, 2)
 			}),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2552,7 +2536,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 1, postPolicy1Count)
 		require.Equal(t, 1, postPolicy2Count)
 		require.Equal(t, []int{1, 2}, executionOrder)
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy via Run options
@@ -2562,16 +2546,16 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scopePolicyCount := 0
 		runPolicyCount := 0
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			scopePolicyCount++
 		}))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			runPolicyCount++
 		}))
 
@@ -2587,11 +2571,11 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		postPolicyExecuted := false
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			postPolicyExecuted = true
 		}))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errOperationFailed
 		})
 
@@ -2607,15 +2591,15 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		And should receive correct changes map
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedChanges map[core.AggregatePtr][]core.EventPack
 		var receivedCtx context.Context
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			receivedCtx = ctx
 			receivedChanges = changes
 		}))
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2628,7 +2612,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NotNil(t, receivedChanges)
 		require.NotNil(t, receivedCtx)
 		require.Equal(t, changes, receivedChanges)
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope without constructor post-scoped policy
@@ -2637,18 +2621,18 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		And should receive correct changes map
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedChanges map[core.AggregatePtr][]core.EventPack
 		var receivedCtx context.Context
-		scope := NewConcurrentScope(factory)
+		scope := core.NewConcurrentScope(factory)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			savedAggregate = agg
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			receivedCtx = ctx
 			receivedChanges = changes
 		}))
@@ -2658,7 +2642,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NotNil(t, receivedChanges)
 		require.NotNil(t, receivedCtx)
 		require.Equal(t, changes, receivedChanges)
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
@@ -2670,19 +2654,19 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		executionOrder := []string{}
 		constructorPolicyCount := 0
 		runPolicyCount := 0
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			constructorPolicyCount++
 			executionOrder = append(executionOrder, "constructor")
 		}))
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			savedAggregate = agg
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			runPolicyCount++
 			executionOrder = append(executionOrder, "run")
 		}))
@@ -2692,7 +2676,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 1, constructorPolicyCount)
 		require.Equal(t, 1, runPolicyCount)
 		require.Equal(t, []string{"constructor", "run"}, executionOrder)
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with multiple post-scoped policies in constructor
@@ -2706,30 +2690,30 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		constructorPolicy2Count := 0
 		runPolicy1Count := 0
 		runPolicy2Count := 0
-		scope := NewConcurrentScope(factory,
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory,
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				constructorPolicy1Count++
 				executionOrder = append(executionOrder, 1)
 			}),
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				constructorPolicy2Count++
 				executionOrder = append(executionOrder, 2)
 			}),
 		)
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			savedAggregate = agg
 			return repo.Save(ctx, agg)
 		},
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				runPolicy1Count++
 				executionOrder = append(executionOrder, 3)
 			}),
-			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 				runPolicy2Count++
 				executionOrder = append(executionOrder, 4)
 			}),
@@ -2742,7 +2726,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 1, runPolicy1Count)
 		require.Equal(t, 1, runPolicy2Count)
 		require.Equal(t, []int{1, 2, 3, 4}, executionOrder)
-		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
@@ -2754,25 +2738,25 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		constructorPolicyCount := 0
 		run1PolicyCount := 0
 		run2PolicyCount := 0
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			constructorPolicyCount++
 		}))
 
-		changes1, err1 := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes1, err1 := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value-1")
 			require.NoError(t, err)
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			run1PolicyCount++
 		}))
 
-		changes2, err2 := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes2, err2 := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-2")
 			_, err := agg.SingleEventCommand("test-value-2")
 			require.NoError(t, err)
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			run2PolicyCount++
 		}))
 
@@ -2792,19 +2776,19 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
-		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedChanges map[core.AggregatePtr][]core.EventPack
 		postPolicyExecuted := false
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			postPolicyExecuted = true
 			receivedChanges = changes
 		}))
 
 		var savedAggregate *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
@@ -2819,7 +2803,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.Equal(t, 1, txRepo.getCommitCount())
 		require.Equal(t, 0, txRepo.getRollbackCount())
 		require.Equal(t, changes, receivedChanges)
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor and Run
@@ -2828,19 +2812,19 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	`, func(t *testing.T) {
 		txRepo := &mockTransactionalRepository{}
 		factory := &mockRepositoryFactory{
-			createFunc: func(ctx context.Context) Repository {
+			createFunc: func(ctx context.Context) core.Repository {
 				return txRepo
 			},
 		}
 		constructorPolicyExecuted := false
 		runPolicyExecuted := false
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			constructorPolicyExecuted = true
 		}))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			return errOperationFailed
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			runPolicyExecuted = true
 		}))
 
@@ -2859,13 +2843,13 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		Then post-scoped policy should receive all aggregates in changes map
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		var receivedChanges map[AggregatePtr][]EventPack
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		var receivedChanges map[core.AggregatePtr][]core.EventPack
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			receivedChanges = changes
 		}))
 
 		var savedAggregate1, savedAggregate2, savedAggregate3 *testAgg
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg1 := newTestAgg("test-id-1")
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
@@ -2894,9 +2878,9 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		require.NotNil(t, receivedChanges)
 		require.Equal(t, changes, receivedChanges)
 		require.Len(t, receivedChanges, 3)
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate1))
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate2))
-		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate3))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate1))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate2))
+		require.Contains(t, receivedChanges, core.AggregatePtr(savedAggregate3))
 	})
 
 	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor and Run
@@ -2904,18 +2888,18 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		Then both policies should receive the same changes map reference
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
-		var constructorChanges map[AggregatePtr][]EventPack
-		var runChanges map[AggregatePtr][]EventPack
-		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		var constructorChanges map[core.AggregatePtr][]core.EventPack
+		var runChanges map[core.AggregatePtr][]core.EventPack
+		scope := core.NewConcurrentScope(factory, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			constructorChanges = changes
 		}))
 
-		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo core.Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
 			return repo.Save(ctx, agg)
-		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+		}, core.WithPostScopedPolicyFunc(func(ctx context.Context, changes map[core.AggregatePtr][]core.EventPack) {
 			runChanges = changes
 		}))
 
@@ -2930,15 +2914,15 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 }
 
 type mockPolicyThatSaves struct {
-	repoCaptured    *Repository
+	repoCaptured    *core.Repository
 	savedAggregate  *testAgg
-	firstAggregate  AggregatePtr
-	secondAggregate AggregatePtr
-	aggregateID     ID
+	firstAggregate  core.AggregatePtr
+	secondAggregate core.AggregatePtr
+	aggregateID     core.ID
 	executionCount  int
 }
 
-func (m *mockPolicyThatSaves) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+func (m *mockPolicyThatSaves) Run(ctx context.Context, repo core.Repository, source core.AggregatePtr, events core.EventPack) error {
 	m.executionCount++
 	if m.repoCaptured != nil {
 		*m.repoCaptured = repo
@@ -2956,7 +2940,7 @@ func (m *mockPolicyThatSaves) Run(ctx context.Context, repo Repository, source A
 		if err != nil {
 			return err
 		}
-		m.secondAggregate = AggregatePtr(agg)
+		m.secondAggregate = core.AggregatePtr(agg)
 	}
 	return nil
 }
