@@ -28,6 +28,8 @@ var (
 	//       // Handle multiple events case - use EventsOfType instead
 	//   }
 	ErrTooManyEvents = errors.New("too many events")
+
+	errAggregateAlreadyInitialized = errors.New("aggregate is already initialized")
 )
 
 type (
@@ -381,7 +383,7 @@ func (a *Aggregate[T]) State() T {
 //	}
 func (a *Aggregate[T]) Initialize(id ID, created Event) {
 	if a.version > 0 {
-		panic(fmt.Errorf("aggregate is already initialized"))
+		panic(errAggregateAlreadyInitialized)
 	}
 	a.id = id
 	a.version = 0

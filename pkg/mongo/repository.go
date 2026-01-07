@@ -137,7 +137,7 @@ func (r *repository) Load(ctx context.Context, id core.ID, target core.Restorer,
 	var doc AggregateDocument[bson.RawValue]
 	err := r.db.Collection(collectionName).FindOne(operationCtx, bson.M{"_id": string(id)}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return core.ErrAggregateNotFound
 		}
 		return fmt.Errorf("retrieval failed: %w", err)

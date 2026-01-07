@@ -53,9 +53,9 @@ const defaultRollbackTimeout = 5 * time.Second
 type ConcurrentScope struct {
 	factory         RepositoryFactory
 	retryOpts       []retry.Option
-	rollbackTimeout time.Duration
 	policies        []ScopedPolicy
 	postPolicies    []PostScopedPolicy
+	rollbackTimeout time.Duration
 }
 
 // NewConcurrentScope creates a new ConcurrentScope with the given repository factory.
@@ -112,9 +112,9 @@ type rollbackTimeoutOption struct {
 
 type processedRunOptions struct {
 	retryOpts       []retry.Option
-	rollbackTimeout time.Duration
 	policies        []ScopedPolicy
 	postPolicies    []PostScopedPolicy
+	rollbackTimeout time.Duration
 }
 
 func processRunOptions(initialRetryOpts []retry.Option, initialRollbackTimeout time.Duration, initialPolicies []ScopedPolicy, initialPostPolicies []PostScopedPolicy, runOptions ...RunOptions) processedRunOptions {

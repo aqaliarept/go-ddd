@@ -2,12 +2,17 @@
 package domain
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	core "github.com/aqaliarept/go-ddd-kit/pkg/core"
 	redis "github.com/aqaliarept/go-ddd-kit/pkg/redis"
 	"github.com/google/uuid"
+)
+
+var (
+	errInvalidNonce              = errors.New("invalid nonce")
+	errSessionInvalidState       = errors.New("session is not in a valid state for processing requests")
 )
 
 //nolint:govet
@@ -97,7 +102,7 @@ func startRefreshAfter(tokenExpiry TokenExpiry, now Timestamp) Timestamp {
 func (s *Session) CompleteAuthorizationCodeFlow(expectedNonce Nonce, accessToken AccessToken, refreshToken RefreshToken, tokenExpiry TokenExpiry, sessionExpiration SessionExpiration, now Timestamp) (core.EventPack, error) {
 	return s.ProcessCommand(func(state *SessionState, er core.EventRiser) error {
 		if state.Nonce != expectedNonce {
-			return fmt.Errorf("invalid nonce")
+			return errInvalidNonce
 		}
 		er.Raise(TokensReceived{
 			AccessToken:       accessToken,
@@ -140,7 +145,7 @@ func (s *Session) ProcessRequest(now Timestamp) (ProcessRequestResult, core.Even
 	var result ProcessRequestResult
 	events, err := s.ProcessCommand(func(state *SessionState, er core.EventRiser) error {
 		if state.Status != statusAuthenticated && state.Status != statusRefreshOngoing {
-			return fmt.Errorf("session is not in a valid state for processing requests")
+			return errSessionInvalidState
 		}
 		result.AccessToken = state.AccessToken
 		if s.shouldStartRefresh(now) {

@@ -1,3 +1,4 @@
+//nolint:fieldalignment
 package core
 
 import (
@@ -10,6 +11,27 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	errPolicyFailed        = errors.New("policy failed")
+	errNonRetryable        = errors.New("non-retryable error")
+	errBeginFailed         = errors.New("begin failed")
+	errCommitFailed        = errors.New("commit failed")
+	errRunFunctionError    = errors.New("run function error")
+	errRollbackFailed      = errors.New("rollback failed")
+	errBeginError          = errors.New("begin error")
+	errCommitError         = errors.New("commit error")
+	errOperationFailed     = errors.New("operation failed")
+	errSaveFailed          = errors.New("save failed")
+	errStoreFailed         = errors.New("store failed")
+	errPolicy2Failed       = errors.New("policy 2 failed")
+	errPolicyFailedGeneric = errors.New("policy failed")
+	errPolicy3Failed       = errors.New("policy 3 failed")
+	errNonRetryablePolicy  = errors.New("non-retryable policy error")
+	errRollbackError       = errors.New("rollback error")
+	errRollbackError1      = errors.New("rollback error 1")
+	errRollbackError2      = errors.New("rollback error 2")
 )
 
 type mockRepositoryFactory struct {
@@ -119,14 +141,13 @@ type mockTransactionalRepository struct {
 }
 
 type mockPolicy struct {
-	executionCount int
-	executions     []policyExecution
-	shouldFail     bool
-	failError      error
-	executionOrder int
 	orderTracker   *[]int
 	orderFunc      func() int
 	customRun      func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error
+	failError      error
+	executions     []policyExecution
+	executionCount int
+	shouldFail     bool
 }
 
 type policyExecution struct {
@@ -171,7 +192,7 @@ func (m *mockPolicy) Run(ctx context.Context, repo Repository, source AggregateP
 		if failError != nil {
 			return failError
 		}
-		return errors.New("policy failed")
+		return errPolicyFailed
 	}
 	return nil
 }
@@ -419,16 +440,15 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory, WithRetryOptions(retry.Attempts(3)))
 
-		expectedErr := errors.New("non-retryable error")
 		callCount := 0
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
 			callCount++
-			return expectedErr
+			return errNonRetryable
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, expectedErr) || errors.Unwrap(err) == expectedErr)
+		require.ErrorIs(t, err, errNonRetryable)
 		require.Contains(t, err.Error(), "non-retryable error")
 		require.Equal(t, 1, callCount)
 		require.Equal(t, 1, factory.getCallCount())
@@ -583,11 +603,10 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		And runFunc should not be called
 		And no commit or rollback should occur
 	`, func(t *testing.T) {
-		beginErr := errors.New("begin failed")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				beginFunc: func(ctx context.Context) (context.Context, error) {
-					return nil, beginErr
+					return nil, errBeginFailed
 				},
 			},
 		}
@@ -606,7 +625,7 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, beginErr) || errors.Unwrap(err) == beginErr)
+		require.ErrorIs(t, err, errBeginFailed)
 		require.Contains(t, err.Error(), "begin failed")
 		require.Equal(t, 0, callCount)
 		require.Equal(t, 1, txRepo.getBeginCount())
@@ -681,11 +700,10 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		Then Commit error should be returned
 		And no rollback should occur
 	`, func(t *testing.T) {
-		commitErr := errors.New("commit failed")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				commitFunc: func(ctx context.Context) error {
-					return commitErr
+					return errCommitFailed
 				},
 			},
 		}
@@ -704,7 +722,7 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, commitErr) || errors.Unwrap(err) == commitErr)
+		require.ErrorIs(t, err, errCommitFailed)
 		require.Contains(t, err.Error(), "commit failed")
 		require.Equal(t, 1, callCount)
 		require.Equal(t, 1, txRepo.getBeginCount())
@@ -760,14 +778,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
+		require.ErrorIs(t, err, errRunFunctionError)
 		require.Equal(t, 1, txRepo.getBeginCount())
 		require.Equal(t, 0, txRepo.getCommitCount())
 		require.Equal(t, 1, txRepo.getRollbackCount())
@@ -799,14 +816,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		scope := NewConcurrentScope(factory)
 		scope.rollbackTimeout = 100 * time.Millisecond
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
+		require.ErrorIs(t, err, errRunFunctionError)
 		require.Equal(t, 1, txRepo.getRollbackCount())
 	})
 
@@ -816,11 +832,10 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		Then both errors should be joined
 		And returned together
 	`, func(t *testing.T) {
-		rollbackErr := errors.New("rollback failed")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				rollbackFunc: func(ctx context.Context) error {
-					return rollbackErr
+					return errRollbackFailed
 				},
 			},
 		}
@@ -831,15 +846,14 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
-		require.True(t, errors.Is(err, rollbackErr))
+		require.ErrorIs(t, err, errRunFunctionError)
+		require.ErrorIs(t, err, errRollbackFailed)
 		require.Equal(t, 1, txRepo.getRollbackCount())
 	})
 
@@ -856,14 +870,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
+		require.ErrorIs(t, err, errRunFunctionError)
 		require.Equal(t, 1, txRepo.getRollbackCount())
 	})
 
@@ -898,9 +911,8 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		scope := NewConcurrentScope(factory)
 		scope.rollbackTimeout = 100 * time.Millisecond
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(ctx, func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
@@ -953,14 +965,13 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
+		require.ErrorIs(t, err, errRunFunctionError)
 		require.Equal(t, 1, txRepo.getBeginCount())
 		require.Equal(t, 0, txRepo.getCommitCount())
 		require.Equal(t, 1, txRepo.getRollbackCount())
@@ -1194,10 +1205,9 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		scope := NewConcurrentScope(factory)
 		scope.rollbackTimeout = 100 * time.Millisecond
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(ctx, func(ctx context.Context, repo Repository) error {
 			cancel()
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
@@ -1322,14 +1332,13 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory)
 
-		expectedErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return expectedErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, expectedErr) || errors.Unwrap(err) == expectedErr)
+		require.ErrorIs(t, err, errRunFunctionError)
 		require.Contains(t, err.Error(), "run function error")
 	})
 
@@ -1337,11 +1346,10 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		When Run is called and Begin returns an error
 		Then Begin error should be propagated correctly
 	`, func(t *testing.T) {
-		beginErr := errors.New("begin error")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				beginFunc: func(ctx context.Context) (context.Context, error) {
-					return nil, beginErr
+					return nil, errBeginError
 				},
 			},
 		}
@@ -1358,7 +1366,7 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, beginErr) || errors.Unwrap(err) == beginErr)
+		require.ErrorIs(t, err, errBeginError)
 		require.Contains(t, err.Error(), "begin error")
 	})
 
@@ -1366,11 +1374,10 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		When Run is called and Commit returns an error
 		Then Commit error should be propagated correctly
 	`, func(t *testing.T) {
-		commitErr := errors.New("commit error")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				commitFunc: func(ctx context.Context) error {
-					return commitErr
+					return errCommitError
 				},
 			},
 		}
@@ -1387,7 +1394,7 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, commitErr) || errors.Unwrap(err) == commitErr)
+		require.ErrorIs(t, err, errCommitError)
 		require.Contains(t, err.Error(), "commit error")
 	})
 
@@ -1397,11 +1404,10 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		Then both errors should be joined
 		And propagated together
 	`, func(t *testing.T) {
-		rollbackErr := errors.New("rollback error")
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				rollbackFunc: func(ctx context.Context) error {
-					return rollbackErr
+					return errRollbackError
 				},
 			},
 		}
@@ -1412,15 +1418,14 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
-		require.True(t, errors.Is(err, rollbackErr))
+		require.ErrorIs(t, err, errRunFunctionError)
+		require.ErrorIs(t, err, errRollbackError)
 	})
 
 	t.Run(`Given a transactional repository
@@ -1428,17 +1433,15 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		Then all errors should be joined
 		And propagated together
 	`, func(t *testing.T) {
-		rollbackErr1 := errors.New("rollback error 1")
-		rollbackErr2 := errors.New("rollback error 2")
 		rollbackCallCount := 0
 		txRepo := &mockTransactionalRepository{
 			mockTransactional: mockTransactional{
 				rollbackFunc: func(ctx context.Context) error {
 					rollbackCallCount++
 					if rollbackCallCount == 1 {
-						return rollbackErr1
+						return errRollbackError1
 					}
-					return rollbackErr2
+					return errRollbackError2
 				},
 			},
 		}
@@ -1449,15 +1452,14 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		}
 		scope := NewConcurrentScope(factory)
 
-		runErr := errors.New("run function error")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return runErr
+			return errRunFunctionError
 		})
 
 		require.Error(t, err)
 		require.Empty(t, changes)
-		require.True(t, errors.Is(err, runErr))
-		require.True(t, errors.Is(err, rollbackErr1))
+		require.ErrorIs(t, err, errRunFunctionError)
+		require.ErrorIs(t, err, errRollbackError1)
 	})
 }
 
@@ -1672,19 +1674,18 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory)
-		expectedErr := errors.New("operation failed")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
-			if err := repo.Save(ctx, agg); err != nil {
+			if err = repo.Save(ctx, agg); err != nil {
 				return err
 			}
-			return expectedErr
+			return errOperationFailed
 		})
 
 		require.Error(t, err)
-		require.True(t, errors.Is(err, expectedErr))
+		require.ErrorIs(t, err, errOperationFailed)
 		verifyChanges(t, changes, ChangesExpectation{})
 	})
 
@@ -1769,10 +1770,9 @@ func TestConcurrentScope_Run_SaveError(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory)
 
-		saveErr := errors.New("save failed")
 		repo := &mockRepository{
 			saveFunc: func(ctx context.Context, aggregate Storer, options ...SaveOption) error {
-				return saveErr
+				return errSaveFailed
 			},
 		}
 		factory.createFunc = func(ctx context.Context) Repository {
@@ -1789,7 +1789,7 @@ func TestConcurrentScope_Run_SaveError(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.True(t, errors.Is(err, saveErr))
+		require.ErrorIs(t, err, errSaveFailed)
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
 			AggregatePtr(savedAggregate),
 			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
@@ -1806,11 +1806,10 @@ func TestConcurrentScope_Run_StoreError(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory)
 
-		storeErr := errors.New("store failed")
 		repo := &mockRepository{
 			saveFunc: func(ctx context.Context, aggregate Storer, options ...SaveOption) error {
 				return aggregate.Store(func(id ID, aggPtr AggregatePtr, state StatePtr, events EventPack, version Version, schemaVersion SchemaVersion) error {
-					return storeErr
+					return errStoreFailed
 				})
 			},
 		}
@@ -1826,7 +1825,7 @@ func TestConcurrentScope_Run_StoreError(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.True(t, errors.Is(err, storeErr))
+		require.ErrorIs(t, err, errStoreFailed)
 		require.Empty(t, changes)
 	})
 }
@@ -1897,7 +1896,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
 			savedAggregate1 = agg1
-			if err := repo.Save(ctx, agg1); err != nil {
+			if err = repo.Save(ctx, agg1); err != nil {
 				return err
 			}
 
@@ -1905,7 +1904,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			_, err = agg2.SingleEventCommand("value-2")
 			require.NoError(t, err)
 			savedAggregate2 = agg2
-			if err := repo.Save(ctx, agg2); err != nil {
+			if err = repo.Save(ctx, agg2); err != nil {
 				return err
 			}
 
@@ -1951,7 +1950,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		policy1 := newMockPolicy()
 		policy2 := newMockPolicy()
 		policy2.shouldFail = true
-		policy2.failError = errors.New("policy 2 failed")
+		policy2.failError = errPolicy2Failed
 		scope := NewConcurrentScope(factory,
 			WithScopedPolicy(policy1),
 			WithScopedPolicy(policy2),
@@ -1983,7 +1982,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		policy := newMockPolicy()
 		policy.shouldFail = true
-		policy.failError = errors.New("policy failed")
+		policy.failError = errPolicyFailedGeneric
 		scope := NewConcurrentScope(factory, WithScopedPolicy(policy))
 
 		var savedAggregate *testAgg
@@ -2023,7 +2022,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		}
 		policy2 := &mockPolicy{
 			shouldFail:   true,
-			failError:    errors.New("policy 2 failed"),
+			failError:    errPolicy2Failed,
 			orderTracker: &executionOrder,
 			orderFunc: func() int {
 				orderCounter++
@@ -2237,7 +2236,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		}
 		policy3 := newMockPolicy()
 		policy3.shouldFail = true
-		policy3.failError = errors.New("policy 3 failed")
+		policy3.failError = errPolicy3Failed
 		scope := NewConcurrentScope(factory,
 			WithScopedPolicy(policy1),
 			WithScopedPolicy(policy2),
@@ -2344,7 +2343,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		policy := newMockPolicy()
 		policy.shouldFail = true
-		policy.failError = errors.New("non-retryable policy error")
+		policy.failError = errNonRetryablePolicy
 		scope := NewConcurrentScope(factory,
 			WithScopedPolicy(policy),
 			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
@@ -2499,7 +2498,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
 			savedAggregate1 = agg1
-			if err := repo.Save(ctx, agg1); err != nil {
+			if err = repo.Save(ctx, agg1); err != nil {
 				return err
 			}
 
@@ -2592,13 +2591,12 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			postPolicyExecuted = true
 		}))
 
-		expectedErr := errors.New("operation failed")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return expectedErr
+			return errOperationFailed
 		})
 
 		require.Error(t, err)
-		require.True(t, errors.Is(err, expectedErr))
+		require.ErrorIs(t, err, errOperationFailed)
 		require.Nil(t, changes)
 		require.False(t, postPolicyExecuted)
 	})
@@ -2840,15 +2838,14 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			constructorPolicyExecuted = true
 		}))
 
-		expectedErr := errors.New("operation failed")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
-			return expectedErr
+			return errOperationFailed
 		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
 			runPolicyExecuted = true
 		}))
 
 		require.Error(t, err)
-		require.True(t, errors.Is(err, expectedErr))
+		require.ErrorIs(t, err, errOperationFailed)
 		require.Nil(t, changes)
 		require.False(t, constructorPolicyExecuted)
 		require.False(t, runPolicyExecuted)
@@ -2873,7 +2870,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			_, err := agg1.SingleEventCommand("value-1")
 			require.NoError(t, err)
 			savedAggregate1 = agg1
-			if err := repo.Save(ctx, agg1); err != nil {
+			if err = repo.Save(ctx, agg1); err != nil {
 				return err
 			}
 
@@ -2881,7 +2878,7 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 			_, err = agg2.SingleEventCommand("value-2")
 			require.NoError(t, err)
 			savedAggregate2 = agg2
-			if err := repo.Save(ctx, agg2); err != nil {
+			if err = repo.Save(ctx, agg2); err != nil {
 				return err
 			}
 
@@ -2932,21 +2929,12 @@ func TestConcurrentScope_Run_Policies(t *testing.T) {
 	})
 }
 
-type mockPolicyWithRepo struct {
-	repoCaptured *Repository
-}
-
-func (m *mockPolicyWithRepo) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
-	*m.repoCaptured = repo
-	return nil
-}
-
 type mockPolicyThatSaves struct {
 	repoCaptured    *Repository
-	aggregateID     ID
 	savedAggregate  *testAgg
 	firstAggregate  AggregatePtr
 	secondAggregate AggregatePtr
+	aggregateID     ID
 	executionCount  int
 }
 

@@ -4,10 +4,17 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	errGuardError        = errors.New("guard error")
+	errTestError         = errors.New("error")
+	errInvalidStateType  = errors.New("invalid state type")
+	errRestoreFailed     = errors.New("restore failed")
+	errStateRestorerFailed = errors.New("state restorer failed")
 )
 
 var _ EventApplier = &testAggState{}
@@ -69,7 +76,7 @@ const (
 func (t *testAgg) SingleEventCommand(val string) (EventPack, error) {
 	return t.ProcessCommand(func(s *testAggState, er EventRiser) error {
 		if val == guardErrorValue {
-			return errors.New("guard error")
+			return errGuardError
 		}
 		er.Raise(ValueUpdated{val})
 		return nil
@@ -81,7 +88,7 @@ func (t *testAgg) MultipleEventsCommand(val string) (EventPack, error) {
 		evt := ValueUpdated{val}
 		er.RaiseTrue(true, evt)
 		if val == guardErrorValue {
-			return errors.New("guard error")
+			return errGuardError
 		}
 		return nil
 	})
@@ -120,7 +127,7 @@ func TestAggregate(t *testing.T) {
 		agg.id = "id"
 		agg.state.MyMap = map[string]nestedEntity{"val": {}}
 		agg.events = append(agg.events, ValueUpdated{"val"})
-		agg.SetError(errors.New("error"))
+		agg.SetError(errTestError)
 
 		newID := ID("new-id")
 		agg.Initialize(newID, Created{})
@@ -186,7 +193,7 @@ func TestAggregate(t *testing.T) {
 			var ok bool
 			pState, ok = storageState.(*testAggState)
 			if !ok {
-				return fmt.Errorf("invalid state type")
+				return errInvalidStateType
 			}
 			pEventPack = ep
 			pVersion = v
@@ -224,7 +231,7 @@ func TestAggregate(t *testing.T) {
 	`, func(t *testing.T) {
 		agg := newTestAgg("id")
 		err := agg.Store(func(id ID, aggregate AggregatePtr, storageState StatePtr, ep EventPack, v Version, sv SchemaVersion) error {
-			return errors.New("error")
+			return errTestError
 		})
 		require.Error(t, err)
 		require.Equal(t, testAggState{MyString: "created", MySlice: make([]nestedEntity, 0)}, agg.State())
@@ -263,7 +270,7 @@ func TestAggregate(t *testing.T) {
 		`, func(t *testing.T) {
 		id := ID("id")
 		agg := newTestAgg("id2")
-		agg.SetError(errors.New("error"))
+		agg.SetError(errTestError)
 		state := testAggState{MyString: "created", MySlice: make([]nestedEntity, 0)}
 		err := agg.Restore(id, Version(100), DefaultSchemaVersion, func(state StatePtr) error {
 			s, ok := state.(*testAggState)
@@ -291,12 +298,11 @@ func TestAggregate(t *testing.T) {
 		agg := testAgg{}
 		agg.id = "original-id"
 		agg.version = Version(10)
-		restoreErr := errors.New("restore failed")
 		err := agg.Restore("new-id", Version(100), DefaultSchemaVersion, func(state StatePtr) error {
-			return restoreErr
+			return errRestoreFailed
 		})
 		require.Error(t, err)
-		require.ErrorIs(t, err, restoreErr)
+		require.ErrorIs(t, err, errRestoreFailed)
 		require.Equal(t, ID("new-id"), agg.id)
 		require.Equal(t, Version(100), agg.version)
 	})
@@ -384,7 +390,7 @@ func TestAggregateCheckErrorPanic(t *testing.T) {
 		Then it should panic
 	`, func(t *testing.T) {
 		agg := newTestAgg("id")
-		agg.SetError(errors.New("test error"))
+		agg.SetError(errTestError)
 
 		require.PanicsWithValue(t, "aggregate state corrupted", func() {
 			_ = agg.ID()
@@ -511,12 +517,11 @@ func TestAggregateStoreWithStateStorer(t *testing.T) {
 		initialVersion := agg.version
 		initialEvents := len(agg.events)
 
-		storeErr := errors.New("store failed")
 		err := agg.Store(func(id ID, aggregate AggregatePtr, storageState StatePtr, ep EventPack, v Version, sv SchemaVersion) error {
-			return storeErr
+			return errStoreFailed
 		})
 		require.Error(t, err)
-		require.ErrorIs(t, err, storeErr)
+		require.ErrorIs(t, err, errStoreFailed)
 		require.Equal(t, initialVersion, agg.version)
 		require.Equal(t, initialEvents, len(agg.events))
 	})
@@ -577,12 +582,11 @@ func TestAggregateRestoreWithStateRestorer(t *testing.T) {
 		agg := stateRestorerTestAgg{}
 		agg.id = "original-id"
 		agg.version = Version(10)
-		restoreErr := errors.New("state restorer failed")
 		err := agg.Restore("new-id", Version(100), SchemaVersion(3), func(state StatePtr) error {
-			return restoreErr
+			return errStateRestorerFailed
 		})
 		require.Error(t, err)
-		require.ErrorIs(t, err, restoreErr)
+		require.ErrorIs(t, err, errStateRestorerFailed)
 		require.Equal(t, ID("new-id"), agg.id)
 		require.Equal(t, Version(100), agg.version)
 	})
@@ -727,7 +731,7 @@ func BenchmarkAggregate(b *testing.B) {
 			err := agg.Store(func(i ID, aggregate AggregatePtr, storageState StatePtr, ep EventPack, v Version, sv SchemaVersion) error {
 				_, ok := storageState.(*testAggState)
 				if !ok {
-					return fmt.Errorf("invalid state type")
+					return errInvalidStateType
 				}
 				return nil
 			})

@@ -2,10 +2,20 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
+)
+
+var (
+	errOAuthClientIDRequired     = errors.New("OAUTH_CLIENT_ID is required")
+	errOAuthClientSecretRequired = errors.New("OAUTH_CLIENT_SECRET is required")
+	errOAuthAuthURLRequired      = errors.New("OAUTH_AUTH_URL is required")
+	errOAuthTokenURLRequired     = errors.New("OAUTH_TOKEN_URL is required")
+	errOAuthRedirectURLRequired  = errors.New("OAUTH_REDIRECT_URL is required")
+	errBackendURLRequired        = errors.New("BACKEND_URL is required")
 )
 
 //nolint:govet
@@ -29,32 +39,32 @@ func LoadConfig() (*Config, error) {
 
 	cfg.oauthClientID = os.Getenv("OAUTH_CLIENT_ID")
 	if cfg.oauthClientID == "" {
-		return nil, fmt.Errorf("OAUTH_CLIENT_ID is required")
+		return nil, errOAuthClientIDRequired
 	}
 
 	cfg.oauthClientSecret = os.Getenv("OAUTH_CLIENT_SECRET")
 	if cfg.oauthClientSecret == "" {
-		return nil, fmt.Errorf("OAUTH_CLIENT_SECRET is required")
+		return nil, errOAuthClientSecretRequired
 	}
 
 	cfg.oauthAuthURL = os.Getenv("OAUTH_AUTH_URL")
 	if cfg.oauthAuthURL == "" {
-		return nil, fmt.Errorf("OAUTH_AUTH_URL is required")
+		return nil, errOAuthAuthURLRequired
 	}
 
 	cfg.oauthTokenURL = os.Getenv("OAUTH_TOKEN_URL")
 	if cfg.oauthTokenURL == "" {
-		return nil, fmt.Errorf("OAUTH_TOKEN_URL is required")
+		return nil, errOAuthTokenURLRequired
 	}
 
 	cfg.oauthRedirectURL = os.Getenv("OAUTH_REDIRECT_URL")
 	if cfg.oauthRedirectURL == "" {
-		return nil, fmt.Errorf("OAUTH_REDIRECT_URL is required")
+		return nil, errOAuthRedirectURLRequired
 	}
 
 	cfg.backendURL = os.Getenv("BACKEND_URL")
 	if cfg.backendURL == "" {
-		return nil, fmt.Errorf("BACKEND_URL is required")
+		return nil, errBackendURLRequired
 	}
 
 	cfg.redisAddr = os.Getenv("REDIS_ADDR")

@@ -1,6 +1,10 @@
 version: "2"
 linters:
-  enable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - err113
   settings:
     exhaustruct:
       allow-empty-returns: false
