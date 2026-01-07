@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
 //nolint:govet
 type SessionState struct {
 	Nonce             Nonce             `json:"nonce"`

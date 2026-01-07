@@ -118,6 +118,74 @@ type mockTransactionalRepository struct {
 	mockTransactional
 }
 
+type mockPolicy struct {
+	executionCount int
+	executions     []policyExecution
+	shouldFail     bool
+	failError      error
+	executionOrder int
+	orderTracker   *[]int
+	orderFunc      func() int
+	customRun      func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error
+}
+
+type policyExecution struct {
+	aggregate AggregatePtr
+	events    EventPack
+	order     int
+}
+
+func newMockPolicy() *mockPolicy {
+	return &mockPolicy{
+		executions: make([]policyExecution, 0),
+	}
+}
+
+func (m *mockPolicy) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+	m.executionCount++
+	var order int
+	if m.orderFunc != nil {
+		order = m.orderFunc()
+	} else {
+		order = m.executionCount
+	}
+	if m.orderTracker != nil {
+		*m.orderTracker = append(*m.orderTracker, order)
+	}
+
+	m.executions = append(m.executions, policyExecution{
+		aggregate: source,
+		events:    events,
+		order:     order,
+	})
+
+	customRun := m.customRun
+	shouldFail := m.shouldFail
+	failError := m.failError
+
+	if customRun != nil {
+		return customRun(ctx, repo, source, events)
+	}
+
+	if shouldFail {
+		if failError != nil {
+			return failError
+		}
+		return errors.New("policy failed")
+	}
+	return nil
+}
+
+func (m *mockPolicy) getExecutionCount() int {
+	return m.executionCount
+}
+
+func (m *mockPolicy) getExecutions() []policyExecution {
+	result := make([]policyExecution, len(m.executions))
+	copy(result, m.executions)
+	return result
+}
+
 type contextKey string
 
 const testContextKey contextKey = "test-key"
@@ -172,7 +240,8 @@ func MergeExpectations(expectations ...ChangesExpectation) ChangesExpectation {
 func verifyChanges(t *testing.T, changes map[AggregatePtr][]EventPack, expectation ChangesExpectation) {
 	t.Helper()
 
-	if expectation.Aggregates == nil {
+	if len(expectation.Aggregates) == 0 {
+		require.Empty(t, changes)
 		return
 	}
 
@@ -358,7 +427,6 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, expectedErr) || errors.Unwrap(err) == expectedErr)
 		require.Contains(t, err.Error(), "non-retryable error")
@@ -427,7 +495,6 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.ErrorIs(t, err, ErrTransient)
 		require.Equal(t, 2, callCount)
@@ -476,7 +543,6 @@ func TestConcurrentScope_Run_NonTransactional(t *testing.T) {
 		}, customOpts)
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.Equal(t, 2, callCount)
 	})
@@ -539,7 +605,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, beginErr) || errors.Unwrap(err) == beginErr)
 		require.Contains(t, err.Error(), "begin failed")
@@ -638,7 +703,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, commitErr) || errors.Unwrap(err) == commitErr)
 		require.Contains(t, err.Error(), "commit failed")
@@ -702,7 +766,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.Equal(t, 1, txRepo.getBeginCount())
@@ -742,7 +805,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.Equal(t, 1, txRepo.getRollbackCount())
@@ -775,7 +837,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.True(t, errors.Is(err, rollbackErr))
@@ -801,7 +862,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.Equal(t, 1, txRepo.getRollbackCount())
@@ -844,7 +904,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, rollbackCalled)
 		require.Equal(t, 1, txRepo.getRollbackCount())
@@ -872,7 +931,7 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		require.NotNil(t, changes)
+		require.Empty(t, changes)
 		require.True(t, executed)
 		require.Equal(t, 1, txRepo.getBeginCount())
 		require.Equal(t, 1, txRepo.getCommitCount())
@@ -900,7 +959,6 @@ func TestConcurrentScope_Run_Transactional(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.Equal(t, 1, txRepo.getBeginCount())
@@ -1027,7 +1085,6 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.ErrorIs(t, err, context.Canceled)
 	})
@@ -1051,7 +1108,6 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.ErrorIs(t, err, context.Canceled)
 	})
@@ -1076,7 +1132,6 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
@@ -1146,7 +1201,6 @@ func TestConcurrentScope_Run_ContextHandling(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.NotNil(t, rollbackCtx)
 		require.NotEqual(t, ctx, rollbackCtx)
@@ -1189,7 +1243,6 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.Equal(t, 2, callCount)
 	})
@@ -1209,7 +1262,6 @@ func TestConcurrentScope_Run_RetryOptionsMerging(t *testing.T) {
 		}, customOpts)
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.Equal(t, 2, callCount)
 	})
@@ -1276,7 +1328,6 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, expectedErr) || errors.Unwrap(err) == expectedErr)
 		require.Contains(t, err.Error(), "run function error")
@@ -1306,7 +1357,6 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, beginErr) || errors.Unwrap(err) == beginErr)
 		require.Contains(t, err.Error(), "begin error")
@@ -1336,7 +1386,6 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, commitErr) || errors.Unwrap(err) == commitErr)
 		require.Contains(t, err.Error(), "commit error")
@@ -1369,7 +1418,6 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.True(t, errors.Is(err, rollbackErr))
@@ -1407,7 +1455,6 @@ func TestConcurrentScope_Run_ErrorPropagation(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 		require.True(t, errors.Is(err, runErr))
 		require.True(t, errors.Is(err, rollbackErr1))
@@ -1621,18 +1668,15 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 
 	t.Run(`Given a repository
 		When Run is called and an aggregate is saved but then an error occurs
-		Then changes map should still contain the aggregate's events
+		Then changes map should be empty
 	`, func(t *testing.T) {
 		factory := &mockRepositoryFactory{}
 		scope := NewConcurrentScope(factory)
-
-		var savedAggregate *testAgg
 		expectedErr := errors.New("operation failed")
 		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
 			agg := newTestAgg("test-id-1")
 			_, err := agg.SingleEventCommand("test-value")
 			require.NoError(t, err)
-			savedAggregate = agg
 			if err := repo.Save(ctx, agg); err != nil {
 				return err
 			}
@@ -1641,10 +1685,7 @@ func TestConcurrentScope_Run_ChangesTracking(t *testing.T) {
 
 		require.Error(t, err)
 		require.True(t, errors.Is(err, expectedErr))
-		verifyChanges(t, changes, ExpectChangesWithoutVerification(
-			AggregatePtr(savedAggregate),
-			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
-		))
+		verifyChanges(t, changes, ChangesExpectation{})
 	})
 
 	t.Run(`Given a transactional repository
@@ -1749,7 +1790,6 @@ func TestConcurrentScope_Run_SaveError(t *testing.T) {
 
 		require.Error(t, err)
 		require.True(t, errors.Is(err, saveErr))
-		require.NotNil(t, changes)
 		verifyChanges(t, changes, ExpectChangesWithoutVerification(
 			AggregatePtr(savedAggregate),
 			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
@@ -1787,7 +1827,1152 @@ func TestConcurrentScope_Run_StoreError(t *testing.T) {
 
 		require.Error(t, err)
 		require.True(t, errors.Is(err, storeErr))
-		require.NotNil(t, changes)
 		require.Empty(t, changes)
 	})
+}
+
+func TestConcurrentScope_Run_Policies(t *testing.T) {
+	t.Run(`Given a ConcurrentScope with multiple policies
+		When Run is called and a single aggregate is saved
+		Then all policies should execute in order
+		And each policy should receive correct aggregate and events
+		And transaction should commit successfully
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy1 := newMockPolicy()
+		policy2 := newMockPolicy()
+		policy3 := newMockPolicy()
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+			WithScopedPolicy(policy3),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, policy1.getExecutionCount())
+		require.Equal(t, 1, policy2.getExecutionCount())
+		require.Equal(t, 1, policy3.getExecutionCount())
+
+		executions1 := policy1.getExecutions()
+		require.Len(t, executions1, 1)
+		require.Equal(t, AggregatePtr(savedAggregate), executions1[0].aggregate)
+		require.Equal(t, EventPack{Created{}, ValueUpdated{value: "test-value"}}, executions1[0].events)
+
+		executions2 := policy2.getExecutions()
+		require.Len(t, executions2, 1)
+		require.Equal(t, AggregatePtr(savedAggregate), executions2[0].aggregate)
+
+		executions3 := policy3.getExecutions()
+		require.Len(t, executions3, 1)
+		require.Equal(t, AggregatePtr(savedAggregate), executions3[0].aggregate)
+	})
+
+	t.Run(`Given a ConcurrentScope with multiple policies
+		When Run is called and multiple aggregates are saved
+		Then policies should execute for each aggregate save
+		And correct aggregate and events should be passed to each policy call
+		And all changes should be tracked correctly
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy1 := newMockPolicy()
+		policy2 := newMockPolicy()
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+		)
+
+		var savedAggregate1, savedAggregate2, savedAggregate3 *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg1 := newTestAgg("test-id-1")
+			_, err := agg1.SingleEventCommand("value-1")
+			require.NoError(t, err)
+			savedAggregate1 = agg1
+			if err := repo.Save(ctx, agg1); err != nil {
+				return err
+			}
+
+			agg2 := newTestAgg("test-id-2")
+			_, err = agg2.SingleEventCommand("value-2")
+			require.NoError(t, err)
+			savedAggregate2 = agg2
+			if err := repo.Save(ctx, agg2); err != nil {
+				return err
+			}
+
+			agg3 := newTestAgg("test-id-3")
+			_, err = agg3.SingleEventCommand("value-3")
+			require.NoError(t, err)
+			savedAggregate3 = agg3
+			return repo.Save(ctx, agg3)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 3, policy1.getExecutionCount())
+		require.Equal(t, 3, policy2.getExecutionCount())
+
+		executions1 := policy1.getExecutions()
+		require.Len(t, executions1, 3)
+		require.Equal(t, AggregatePtr(savedAggregate1), executions1[0].aggregate)
+		require.Equal(t, AggregatePtr(savedAggregate2), executions1[1].aggregate)
+		require.Equal(t, AggregatePtr(savedAggregate3), executions1[2].aggregate)
+
+		executions2 := policy2.getExecutions()
+		require.Len(t, executions2, 3)
+		require.Equal(t, AggregatePtr(savedAggregate1), executions2[0].aggregate)
+		require.Equal(t, AggregatePtr(savedAggregate2), executions2[1].aggregate)
+		require.Equal(t, AggregatePtr(savedAggregate3), executions2[2].aggregate)
+	})
+
+	t.Run(`Given a ConcurrentScope with transactional repository and multiple policies
+		When Run is called and second policy fails
+		Then first policy should execute
+		And second policy should fail
+		And transaction should be rolled back
+		And commit should not be called
+		And error should be returned
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		policy1 := newMockPolicy()
+		policy2 := newMockPolicy()
+		policy2.shouldFail = true
+		policy2.failError = errors.New("policy 2 failed")
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+		)
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Empty(t, changes)
+		require.Contains(t, err.Error(), "policy 2 failed")
+		require.Equal(t, 1, policy1.getExecutionCount())
+		require.Equal(t, 1, policy2.getExecutionCount())
+		require.Equal(t, 1, txRepo.getBeginCount())
+		require.Equal(t, 0, txRepo.getCommitCount())
+		require.Equal(t, 1, txRepo.getRollbackCount())
+	})
+
+	t.Run(`Given a ConcurrentScope with non-transactional repository
+		When Run is called and policy fails
+		Then policy should execute and fail
+		And error should be returned
+		And changes should still be tracked
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy := newMockPolicy()
+		policy.shouldFail = true
+		policy.failError = errors.New("policy failed")
+		scope := NewConcurrentScope(factory, WithScopedPolicy(policy))
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "policy failed")
+		require.Equal(t, 1, policy.getExecutionCount())
+		verifyChanges(t, changes, ExpectChangesWithoutVerification(
+			AggregatePtr(savedAggregate),
+			[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+		))
+	})
+
+	t.Run(`Given a ConcurrentScope with multiple policies
+		When Run is called and second policy fails
+		Then first policy should execute
+		And second policy should fail
+		And third policy should not execute
+		And error should be returned
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var executionOrder []int
+		orderCounter := 0
+		policy1 := &mockPolicy{
+			orderTracker: &executionOrder,
+			orderFunc: func() int {
+				orderCounter++
+				return orderCounter
+			},
+		}
+		policy2 := &mockPolicy{
+			shouldFail:   true,
+			failError:    errors.New("policy 2 failed"),
+			orderTracker: &executionOrder,
+			orderFunc: func() int {
+				orderCounter++
+				return orderCounter
+			},
+		}
+		policy3 := &mockPolicy{
+			orderTracker: &executionOrder,
+			orderFunc: func() int {
+				orderCounter++
+				return orderCounter
+			},
+		}
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+			WithScopedPolicy(policy3),
+		)
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Empty(t, changes)
+		require.Contains(t, err.Error(), "policy 2 failed")
+		require.Equal(t, 1, policy1.getExecutionCount())
+		require.Equal(t, 1, policy2.getExecutionCount())
+		require.Equal(t, 0, policy3.getExecutionCount())
+		require.Equal(t, []int{1, 2}, executionOrder)
+	})
+
+	t.Run(`Given a ConcurrentScope with scope-level policy
+		When Run is called with additional policy via Run options
+		Then both policies should execute
+		And scope-level and run-level policies should be merged
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		scopePolicyCount := 0
+		runPolicyCount := 0
+		scope := NewConcurrentScope(factory, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			scopePolicyCount++
+			return nil
+		}))
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		}, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			runPolicyCount++
+			return nil
+		}))
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, scopePolicyCount)
+		require.Equal(t, 1, runPolicyCount)
+	})
+
+	t.Run(`Given a ConcurrentScope with a policy that uses repository
+		When Run is called and aggregate is saved
+		Then policy should be able to access repository methods
+		And repository should be the decorator to enable recursive policy execution
+	`, func(t *testing.T) {
+		innerRepo := &mockRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return innerRepo
+			},
+		}
+		var policyRepo Repository
+		scope := NewConcurrentScope(factory, WithScopedPolicyFunc(func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			policyRepo = repo
+			return nil
+		}))
+
+		var scopeRepo Repository
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			scopeRepo = repo
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, policyRepo)
+		require.Equal(t, scopeRepo, policyRepo)
+		require.NotEqual(t, innerRepo, policyRepo)
+	})
+
+	t.Run(`Given a ConcurrentScope with policies
+		When a policy saves an aggregate
+		Then policies should be triggered for that save as well
+		And changes map should contain aggregates modified in policy
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy1 := newMockPolicy()
+		var policyRepo Repository
+		policy2 := &mockPolicyThatSaves{
+			repoCaptured: &policyRepo,
+			aggregateID:  "policy-saved-id",
+		}
+		policy3 := newMockPolicy()
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+			WithScopedPolicy(policy3),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 2, policy1.getExecutionCount())
+		require.Equal(t, 2, policy2.getExecutionCount())
+		require.Equal(t, 2, policy3.getExecutionCount())
+
+		require.NotNil(t, policy2.savedAggregate)
+		require.Equal(t, AggregatePtr(savedAggregate), policy2.firstAggregate)
+		require.Equal(t, AggregatePtr(policy2.savedAggregate), policy2.secondAggregate)
+
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, AggregatePtr(policy2.savedAggregate))
+
+		verifyChanges(t, changes, MergeExpectations(
+			ExpectChangesWithoutVerification(
+				AggregatePtr(savedAggregate),
+				[][]Event{{Created{}, ValueUpdated{value: "test-value"}}},
+			),
+			ExpectChangesWithoutVerification(
+				AggregatePtr(policy2.savedAggregate),
+				[][]Event{{Created{}, ValueUpdated{value: "policy-saved-value"}}},
+			),
+		))
+	})
+
+	t.Run(`Given a ConcurrentScope with transactional repository and policies
+		When a policy saves an aggregate
+		Then policies should be triggered for that save
+		And changes map should contain all aggregates including those saved in policies
+		And transaction should commit successfully
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		policy1 := newMockPolicy()
+		var policyRepo Repository
+		policy2 := &mockPolicyThatSaves{
+			repoCaptured: &policyRepo,
+			aggregateID:  "policy-saved-id-2",
+		}
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 2, policy1.getExecutionCount())
+		require.Equal(t, 2, policy2.getExecutionCount())
+		require.Equal(t, 1, txRepo.getBeginCount())
+		require.Equal(t, 1, txRepo.getCommitCount())
+		require.Equal(t, 0, txRepo.getRollbackCount())
+
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+		require.Contains(t, changes, AggregatePtr(policy2.savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with policies
+		When a policy saves an aggregate and another policy fails
+		Then transaction should be rolled back
+		And changes map should contain all aggregates saved before failure
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		policy1 := newMockPolicy()
+		var policyRepo Repository
+		policy2 := &mockPolicyThatSaves{
+			repoCaptured: &policyRepo,
+			aggregateID:  "policy-saved-id-3",
+		}
+		policy3 := newMockPolicy()
+		policy3.shouldFail = true
+		policy3.failError = errors.New("policy 3 failed")
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+			WithScopedPolicy(policy3),
+		)
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Empty(t, changes)
+		require.Contains(t, err.Error(), "policy 3 failed")
+		require.Equal(t, 2, policy1.getExecutionCount())
+		require.Equal(t, 2, policy2.getExecutionCount())
+		require.Equal(t, 1, policy3.getExecutionCount())
+		require.Equal(t, 1, txRepo.getBeginCount())
+		require.Equal(t, 0, txRepo.getCommitCount())
+		require.Equal(t, 1, txRepo.getRollbackCount())
+	})
+
+	t.Run(`Given a ConcurrentScope with a policy that returns ErrTransient
+		When Run is called and aggregate is saved
+		Then policy error should trigger retry
+		And operation should eventually succeed
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy := newMockPolicy()
+		policyCallCount := 0
+		policy.shouldFail = true
+		policy.failError = ErrTransient
+		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			policyCallCount++
+			if policyCallCount < 2 {
+				return ErrTransient
+			}
+			return nil
+		}
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy),
+			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.GreaterOrEqual(t, policyCallCount, 2)
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with a policy that returns ErrConcurrentModification
+		When Run is called and aggregate is saved
+		Then policy error should trigger retry
+		And operation should eventually succeed
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy := newMockPolicy()
+		policyCallCount := 0
+		policy.shouldFail = true
+		policy.failError = ErrConcurrentModification
+		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			policyCallCount++
+			if policyCallCount < 2 {
+				return ErrConcurrentModification
+			}
+			return nil
+		}
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy),
+			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.GreaterOrEqual(t, policyCallCount, 2)
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with a policy that returns non-retryable error
+		When Run is called and aggregate is saved
+		Then policy error should not trigger retry
+		And error should be returned immediately
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy := newMockPolicy()
+		policy.shouldFail = true
+		policy.failError = errors.New("non-retryable policy error")
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy),
+			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		)
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Empty(t, changes)
+		require.Contains(t, err.Error(), "non-retryable policy error")
+		require.Equal(t, 1, policy.getExecutionCount())
+	})
+
+	t.Run(`Given a ConcurrentScope with transactional repository and policy that returns ErrTransient
+		When Run is called and aggregate is saved
+		Then policy error should trigger retry
+		And transaction should be rolled back on each retry
+		And operation should eventually succeed
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		policy := newMockPolicy()
+		policyCallCount := 0
+		policy.shouldFail = true
+		policy.failError = ErrTransient
+		policy.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			policyCallCount++
+			if policyCallCount < 2 {
+				return ErrTransient
+			}
+			return nil
+		}
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy),
+			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.GreaterOrEqual(t, policyCallCount, 2)
+		require.Equal(t, 2, txRepo.getBeginCount())
+		require.Equal(t, 1, txRepo.getCommitCount())
+		require.Equal(t, 1, txRepo.getRollbackCount())
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with policy that returns ErrTransient multiple times
+		When Run is called and aggregate is saved
+		Then policy error should trigger retries until attempts exhausted
+		And ErrTransient should be returned after all retries
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy := newMockPolicy()
+		policy.shouldFail = true
+		policy.failError = ErrTransient
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy),
+			WithRetryOptions(retry.Attempts(2), retry.Delay(10*time.Millisecond)),
+		)
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		})
+
+		require.Error(t, err)
+		require.Empty(t, changes)
+		require.ErrorIs(t, err, ErrTransient)
+		require.Equal(t, 2, policy.getExecutionCount())
+	})
+
+	t.Run(`Given a ConcurrentScope with multiple policies where second policy returns ErrTransient
+		When Run is called and aggregate is saved
+		Then first policy should execute
+		And second policy error should trigger retry
+		And third policy should not execute until retry succeeds
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		policy1 := newMockPolicy()
+		policy2 := newMockPolicy()
+		policy2CallCount := 0
+		policy2.shouldFail = true
+		policy2.failError = ErrTransient
+		policy2.customRun = func(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+			policy2CallCount++
+			if policy2CallCount < 2 {
+				return ErrTransient
+			}
+			return nil
+		}
+		policy3 := newMockPolicy()
+		scope := NewConcurrentScope(factory,
+			WithScopedPolicy(policy1),
+			WithScopedPolicy(policy2),
+			WithScopedPolicy(policy3),
+			WithRetryOptions(retry.Attempts(3), retry.Delay(10*time.Millisecond)),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 2, policy1.getExecutionCount())
+		require.Equal(t, 2, policy2CallCount)
+		require.Equal(t, 1, policy3.getExecutionCount())
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy
+		When Run is called and aggregates are saved
+		Then post-scoped policy should execute after Run completes
+		And should receive all changes map
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var receivedChanges map[AggregatePtr][]EventPack
+		var postPolicyCtx context.Context
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			postPolicyCtx = ctx
+			receivedChanges = changes
+		}))
+
+		var savedAggregate1, savedAggregate2 *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg1 := newTestAgg("test-id-1")
+			_, err := agg1.SingleEventCommand("value-1")
+			require.NoError(t, err)
+			savedAggregate1 = agg1
+			if err := repo.Save(ctx, agg1); err != nil {
+				return err
+			}
+
+			agg2 := newTestAgg("test-id-2")
+			_, err = agg2.SingleEventCommand("value-2")
+			require.NoError(t, err)
+			savedAggregate2 = agg2
+			return repo.Save(ctx, agg2)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, receivedChanges)
+		require.NotNil(t, postPolicyCtx)
+		require.Equal(t, changes, receivedChanges)
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate1))
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate2))
+	})
+
+	t.Run(`Given a ConcurrentScope with multiple post-scoped policies
+		When Run is called and aggregates are saved
+		Then all post-scoped policies should execute in order
+		And each should receive the changes map
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		executionOrder := []int{}
+		postPolicy1Count := 0
+		postPolicy2Count := 0
+		scope := NewConcurrentScope(factory,
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				postPolicy1Count++
+				executionOrder = append(executionOrder, 1)
+			}),
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				postPolicy2Count++
+				executionOrder = append(executionOrder, 2)
+			}),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, postPolicy1Count)
+		require.Equal(t, 1, postPolicy2Count)
+		require.Equal(t, []int{1, 2}, executionOrder)
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy via Run options
+		When Run is called
+		Then scope-level and run-level post-scoped policies should be merged
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		scopePolicyCount := 0
+		runPolicyCount := 0
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			scopePolicyCount++
+		}))
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			runPolicyCount++
+		}))
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, scopePolicyCount)
+		require.Equal(t, 1, runPolicyCount)
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy
+		When Run is called and an error occurs
+		Then post-scoped policy should not execute
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		postPolicyExecuted := false
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			postPolicyExecuted = true
+		}))
+
+		expectedErr := errors.New("operation failed")
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			return expectedErr
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, expectedErr))
+		require.Nil(t, changes)
+		require.False(t, postPolicyExecuted)
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
+		When Run is called successfully
+		Then constructor post-scoped policy should execute
+		And should receive correct changes map
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedCtx context.Context
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			receivedCtx = ctx
+			receivedChanges = changes
+		}))
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, receivedChanges)
+		require.NotNil(t, receivedCtx)
+		require.Equal(t, changes, receivedChanges)
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope without constructor post-scoped policy
+		When Run is called with post-scoped policy in Run options
+		Then Run post-scoped policy should execute
+		And should receive correct changes map
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var receivedChanges map[AggregatePtr][]EventPack
+		var receivedCtx context.Context
+		scope := NewConcurrentScope(factory)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			receivedCtx = ctx
+			receivedChanges = changes
+		}))
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, receivedChanges)
+		require.NotNil(t, receivedCtx)
+		require.Equal(t, changes, receivedChanges)
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
+		When Run is called with post-scoped policy in Run options
+		Then both constructor and Run post-scoped policies should execute
+		And constructor policy should execute before Run policy
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		executionOrder := []string{}
+		constructorPolicyCount := 0
+		runPolicyCount := 0
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			constructorPolicyCount++
+			executionOrder = append(executionOrder, "constructor")
+		}))
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			runPolicyCount++
+			executionOrder = append(executionOrder, "run")
+		}))
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, constructorPolicyCount)
+		require.Equal(t, 1, runPolicyCount)
+		require.Equal(t, []string{"constructor", "run"}, executionOrder)
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with multiple post-scoped policies in constructor
+		When Run is called with multiple post-scoped policies in Run options
+		Then all policies should execute in order
+		And constructor policies should execute before Run policies
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		executionOrder := []int{}
+		constructorPolicy1Count := 0
+		constructorPolicy2Count := 0
+		runPolicy1Count := 0
+		runPolicy2Count := 0
+		scope := NewConcurrentScope(factory,
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				constructorPolicy1Count++
+				executionOrder = append(executionOrder, 1)
+			}),
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				constructorPolicy2Count++
+				executionOrder = append(executionOrder, 2)
+			}),
+		)
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		},
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				runPolicy1Count++
+				executionOrder = append(executionOrder, 3)
+			}),
+			WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+				runPolicy2Count++
+				executionOrder = append(executionOrder, 4)
+			}),
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.Equal(t, 1, constructorPolicy1Count)
+		require.Equal(t, 1, constructorPolicy2Count)
+		require.Equal(t, 1, runPolicy1Count)
+		require.Equal(t, 1, runPolicy2Count)
+		require.Equal(t, []int{1, 2, 3, 4}, executionOrder)
+		require.Contains(t, changes, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
+		When Run is called multiple times with different Run post-scoped policies
+		Then constructor policy should execute for each Run
+		And Run policies should execute only for their respective Run
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		constructorPolicyCount := 0
+		run1PolicyCount := 0
+		run2PolicyCount := 0
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			constructorPolicyCount++
+		}))
+
+		changes1, err1 := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value-1")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			run1PolicyCount++
+		}))
+
+		changes2, err2 := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-2")
+			_, err := agg.SingleEventCommand("test-value-2")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			run2PolicyCount++
+		}))
+
+		require.NoError(t, err1)
+		require.NoError(t, err2)
+		require.NotNil(t, changes1)
+		require.NotNil(t, changes2)
+		require.Equal(t, 2, constructorPolicyCount)
+		require.Equal(t, 1, run1PolicyCount)
+		require.Equal(t, 1, run2PolicyCount)
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor
+		When Run is called with transactional repository
+		Then post-scoped policy should execute after transaction commits
+		And should receive changes map
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		var receivedChanges map[AggregatePtr][]EventPack
+		postPolicyExecuted := false
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			postPolicyExecuted = true
+			receivedChanges = changes
+		}))
+
+		var savedAggregate *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			savedAggregate = agg
+			return repo.Save(ctx, agg)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.True(t, postPolicyExecuted)
+		require.Equal(t, 1, txRepo.getBeginCount())
+		require.Equal(t, 1, txRepo.getCommitCount())
+		require.Equal(t, 0, txRepo.getRollbackCount())
+		require.Equal(t, changes, receivedChanges)
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor and Run
+		When Run is called and transaction fails
+		Then post-scoped policies should not execute
+	`, func(t *testing.T) {
+		txRepo := &mockTransactionalRepository{}
+		factory := &mockRepositoryFactory{
+			createFunc: func(ctx context.Context) Repository {
+				return txRepo
+			},
+		}
+		constructorPolicyExecuted := false
+		runPolicyExecuted := false
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			constructorPolicyExecuted = true
+		}))
+
+		expectedErr := errors.New("operation failed")
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			return expectedErr
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			runPolicyExecuted = true
+		}))
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, expectedErr))
+		require.Nil(t, changes)
+		require.False(t, constructorPolicyExecuted)
+		require.False(t, runPolicyExecuted)
+		require.Equal(t, 1, txRepo.getBeginCount())
+		require.Equal(t, 0, txRepo.getCommitCount())
+		require.Equal(t, 1, txRepo.getRollbackCount())
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy
+		When Run is called with multiple aggregates saved
+		Then post-scoped policy should receive all aggregates in changes map
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var receivedChanges map[AggregatePtr][]EventPack
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			receivedChanges = changes
+		}))
+
+		var savedAggregate1, savedAggregate2, savedAggregate3 *testAgg
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg1 := newTestAgg("test-id-1")
+			_, err := agg1.SingleEventCommand("value-1")
+			require.NoError(t, err)
+			savedAggregate1 = agg1
+			if err := repo.Save(ctx, agg1); err != nil {
+				return err
+			}
+
+			agg2 := newTestAgg("test-id-2")
+			_, err = agg2.SingleEventCommand("value-2")
+			require.NoError(t, err)
+			savedAggregate2 = agg2
+			if err := repo.Save(ctx, agg2); err != nil {
+				return err
+			}
+
+			agg3 := newTestAgg("test-id-3")
+			_, err = agg3.SingleEventCommand("value-3")
+			require.NoError(t, err)
+			savedAggregate3 = agg3
+			return repo.Save(ctx, agg3)
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, receivedChanges)
+		require.Equal(t, changes, receivedChanges)
+		require.Len(t, receivedChanges, 3)
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate1))
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate2))
+		require.Contains(t, receivedChanges, AggregatePtr(savedAggregate3))
+	})
+
+	t.Run(`Given a ConcurrentScope with post-scoped policy in constructor and Run
+		When Run is called successfully
+		Then both policies should receive the same changes map reference
+	`, func(t *testing.T) {
+		factory := &mockRepositoryFactory{}
+		var constructorChanges map[AggregatePtr][]EventPack
+		var runChanges map[AggregatePtr][]EventPack
+		scope := NewConcurrentScope(factory, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			constructorChanges = changes
+		}))
+
+		changes, err := scope.Run(context.Background(), func(ctx context.Context, repo Repository) error {
+			agg := newTestAgg("test-id-1")
+			_, err := agg.SingleEventCommand("test-value")
+			require.NoError(t, err)
+			return repo.Save(ctx, agg)
+		}, WithPostScopedPolicyFunc(func(ctx context.Context, changes map[AggregatePtr][]EventPack) {
+			runChanges = changes
+		}))
+
+		require.NoError(t, err)
+		require.NotNil(t, changes)
+		require.NotNil(t, constructorChanges)
+		require.NotNil(t, runChanges)
+		require.Equal(t, changes, constructorChanges)
+		require.Equal(t, changes, runChanges)
+		require.Equal(t, constructorChanges, runChanges)
+	})
+}
+
+type mockPolicyWithRepo struct {
+	repoCaptured *Repository
+}
+
+func (m *mockPolicyWithRepo) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+	*m.repoCaptured = repo
+	return nil
+}
+
+type mockPolicyThatSaves struct {
+	repoCaptured    *Repository
+	aggregateID     ID
+	savedAggregate  *testAgg
+	firstAggregate  AggregatePtr
+	secondAggregate AggregatePtr
+	executionCount  int
+}
+
+func (m *mockPolicyThatSaves) Run(ctx context.Context, repo Repository, source AggregatePtr, events EventPack) error {
+	m.executionCount++
+	if m.repoCaptured != nil {
+		*m.repoCaptured = repo
+	}
+
+	if m.executionCount == 1 {
+		m.firstAggregate = source
+		agg := newTestAgg(m.aggregateID)
+		_, err := agg.SingleEventCommand("policy-saved-value")
+		if err != nil {
+			return err
+		}
+		m.savedAggregate = agg
+		err = repo.Save(ctx, agg)
+		if err != nil {
+			return err
+		}
+		m.secondAggregate = AggregatePtr(agg)
+	}
+	return nil
+}
+
+func (m *mockPolicyThatSaves) getExecutionCount() int {
+	return m.executionCount
 }
