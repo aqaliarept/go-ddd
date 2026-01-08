@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -49,13 +50,14 @@ func main() {
 	}
 
 	httpServer := &http.Server{
-		Addr:    ":" + cfg.ServerPort(),
-		Handler: srv,
+		Addr:              ":" + cfg.ServerPort(),
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	go func() {
 		log.Printf("server starting on port %s", cfg.ServerPort())
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("server error: %v", err)
 		}
 	}()

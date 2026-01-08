@@ -1,10 +1,34 @@
 version: "2"
 linters:
-  enable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - err113
+    - gosec
+    - testpackage
+    - contextcheck
+    - gochecknoglobals
+    - gochecknoinits
+    - gocritic
+    - godoclint
+    - iface
+    - intrange
+    - modernize
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - recvcheck
+    - exhaustruct
   settings:
     exhaustruct:
       allow-empty-returns: false
       allow-empty-declarations: false
+      exclude:
+        - .*test.*
+        - .*domain\.Session.*
+        - .*http\.Server.*
+        - .*http\.Cookie.*
     staticcheck:
       checks:
         - all

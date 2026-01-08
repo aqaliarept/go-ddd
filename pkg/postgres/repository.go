@@ -281,6 +281,7 @@ func (r *repository) updateExisting(ctx context.Context, tableName string, id co
 func newRepository(db *pgxpool.Pool) core.Repository {
 	return &repository{
 		db: db,
+		tx: nil,
 	}
 }
 

@@ -1,4 +1,3 @@
-// Package server provides OAuth server functionality.
 package main
 
 import (
@@ -24,85 +23,54 @@ type Config struct {
 	serverPort               string
 }
 
+func getEnvOrPanic(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		panic(fmt.Sprintf("environment variable %s not found", key))
+	}
+	return value
+}
+
+func getEnvOrDefault(key string, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
 func LoadConfig() (*Config, error) {
-	cfg := &Config{}
-
-	cfg.oauthClientID = os.Getenv("OAUTH_CLIENT_ID")
-	if cfg.oauthClientID == "" {
-		return nil, fmt.Errorf("OAUTH_CLIENT_ID is required")
+	channelSizeStr := getEnvOrDefault("REFRESH_WORKER_CHANNEL_SIZE", "100")
+	size, err := strconv.Atoi(channelSizeStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid REFRESH_WORKER_CHANNEL_SIZE: %w", err)
 	}
 
-	cfg.oauthClientSecret = os.Getenv("OAUTH_CLIENT_SECRET")
-	if cfg.oauthClientSecret == "" {
-		return nil, fmt.Errorf("OAUTH_CLIENT_SECRET is required")
+	timeoutStr := getEnvOrDefault("REFRESH_TIMEOUT", "5m")
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid REFRESH_TIMEOUT: %w", err)
 	}
 
-	cfg.oauthAuthURL = os.Getenv("OAUTH_AUTH_URL")
-	if cfg.oauthAuthURL == "" {
-		return nil, fmt.Errorf("OAUTH_AUTH_URL is required")
+	expirationStr := getEnvOrDefault("SESSION_EXPIRATION", "24h")
+	expiration, err := time.ParseDuration(expirationStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SESSION_EXPIRATION: %w", err)
 	}
 
-	cfg.oauthTokenURL = os.Getenv("OAUTH_TOKEN_URL")
-	if cfg.oauthTokenURL == "" {
-		return nil, fmt.Errorf("OAUTH_TOKEN_URL is required")
-	}
-
-	cfg.oauthRedirectURL = os.Getenv("OAUTH_REDIRECT_URL")
-	if cfg.oauthRedirectURL == "" {
-		return nil, fmt.Errorf("OAUTH_REDIRECT_URL is required")
-	}
-
-	cfg.backendURL = os.Getenv("BACKEND_URL")
-	if cfg.backendURL == "" {
-		return nil, fmt.Errorf("BACKEND_URL is required")
-	}
-
-	cfg.redisAddr = os.Getenv("REDIS_ADDR")
-	if cfg.redisAddr == "" {
-		cfg.redisAddr = "localhost:6379"
-	}
-
-	cfg.sessionCookieName = os.Getenv("SESSION_COOKIE_NAME")
-	if cfg.sessionCookieName == "" {
-		cfg.sessionCookieName = "session_id"
-	}
-
-	channelSizeStr := os.Getenv("REFRESH_WORKER_CHANNEL_SIZE")
-	if channelSizeStr == "" {
-		cfg.refreshWorkerChannelSize = 100
-	} else {
-		size, err := strconv.Atoi(channelSizeStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid REFRESH_WORKER_CHANNEL_SIZE: %w", err)
-		}
-		cfg.refreshWorkerChannelSize = size
-	}
-
-	timeoutStr := os.Getenv("REFRESH_TIMEOUT")
-	if timeoutStr == "" {
-		cfg.refreshTimeout = 5 * time.Minute
-	} else {
-		timeout, err := time.ParseDuration(timeoutStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid REFRESH_TIMEOUT: %w", err)
-		}
-		cfg.refreshTimeout = timeout
-	}
-
-	expirationStr := os.Getenv("SESSION_EXPIRATION")
-	if expirationStr == "" {
-		cfg.sessionExpiration = 24 * time.Hour
-	} else {
-		expiration, err := time.ParseDuration(expirationStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid SESSION_EXPIRATION: %w", err)
-		}
-		cfg.sessionExpiration = expiration
-	}
-
-	cfg.serverPort = os.Getenv("SERVER_PORT")
-	if cfg.serverPort == "" {
-		cfg.serverPort = "8080"
+	cfg := &Config{
+		oauthClientID:            getEnvOrPanic("OAUTH_CLIENT_ID"),
+		oauthClientSecret:        getEnvOrPanic("OAUTH_CLIENT_SECRET"),
+		oauthAuthURL:             getEnvOrPanic("OAUTH_AUTH_URL"),
+		oauthTokenURL:            getEnvOrPanic("OAUTH_TOKEN_URL"),
+		oauthRedirectURL:         getEnvOrPanic("OAUTH_REDIRECT_URL"),
+		backendURL:               getEnvOrPanic("BACKEND_URL"),
+		redisAddr:                getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		sessionCookieName:        getEnvOrDefault("SESSION_COOKIE_NAME", "session_id"),
+		refreshWorkerChannelSize: size,
+		refreshTimeout:           timeout,
+		sessionExpiration:        expiration,
+		serverPort:               getEnvOrDefault("SERVER_PORT", "8080"),
 	}
 
 	return cfg, nil

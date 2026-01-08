@@ -2,7 +2,7 @@
 package domain
 
 import (
-	"fmt"
+	"errors"
 	"time"
 
 	core "github.com/aqaliarept/go-ddd-kit/pkg/core"
@@ -10,6 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	errInvalidNonce              = errors.New("invalid nonce")
+	errSessionInvalidState       = errors.New("session is not in a valid state for processing requests")
+)
 
 //nolint:govet
 type SessionState struct {
@@ -31,16 +35,16 @@ func (s *SessionState) Apply(event core.Event) {
 		s.Nonce = e.Nonce
 		s.RedirectURL = e.RedirectURL
 		s.SessionExpiration = e.SessionExpiration
-		s.Status = statusPending
+		s.Status = StatusPending
 	case TokensReceived:
 		s.AccessToken = e.AccessToken
 		s.RefreshToken = e.RefreshToken
 		s.TokenExpiry = e.TokenExpiry
 		s.SessionExpiration = e.SessionExpiration
 		s.StartRefreshAfter = e.StartRefreshAfter
-		s.Status = statusAuthenticated
+		s.Status = StatusAuthenticated
 	case RefreshQueued:
-		s.Status = statusRefreshOngoing
+		s.Status = StatusRefreshOngoing
 		s.RefreshStartedAt = e.At
 	case core.Tombstone:
 		// ignore
@@ -98,7 +102,7 @@ func startRefreshAfter(tokenExpiry TokenExpiry, now Timestamp) Timestamp {
 func (s *Session) CompleteAuthorizationCodeFlow(expectedNonce Nonce, accessToken AccessToken, refreshToken RefreshToken, tokenExpiry TokenExpiry, sessionExpiration SessionExpiration, now Timestamp) (core.EventPack, error) {
 	return s.ProcessCommand(func(state *SessionState, er core.EventRiser) error {
 		if state.Nonce != expectedNonce {
-			return fmt.Errorf("invalid nonce")
+			return errInvalidNonce
 		}
 		er.Raise(TokensReceived{
 			AccessToken:       accessToken,
@@ -126,10 +130,10 @@ func (s *Session) RefreshTokens(accessToken AccessToken, refreshToken RefreshTok
 
 func (s *Session) shouldStartRefresh(now Timestamp) bool {
 	state := s.State()
-	if state.Status == statusRefreshOngoing &&
+	if state.Status == StatusRefreshOngoing &&
 		now.Time().After(state.RefreshStartedAt.Time().Add(state.RefreshTimeout.Duration())) {
 		return true
-	} else if state.Status == statusAuthenticated {
+	} else if state.Status == StatusAuthenticated {
 		if now.Time().After(state.StartRefreshAfter.Time()) || now.Time().Equal(state.StartRefreshAfter.Time()) {
 			return true
 		}
@@ -140,8 +144,8 @@ func (s *Session) shouldStartRefresh(now Timestamp) bool {
 func (s *Session) ProcessRequest(now Timestamp) (ProcessRequestResult, core.EventPack, error) {
 	var result ProcessRequestResult
 	events, err := s.ProcessCommand(func(state *SessionState, er core.EventRiser) error {
-		if state.Status != statusAuthenticated && state.Status != statusRefreshOngoing {
-			return fmt.Errorf("session is not in a valid state for processing requests")
+		if state.Status != StatusAuthenticated && state.Status != StatusRefreshOngoing {
+			return errSessionInvalidState
 		}
 		result.AccessToken = state.AccessToken
 		if s.shouldStartRefresh(now) {

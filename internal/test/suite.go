@@ -2,11 +2,17 @@ package test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	core "github.com/aqaliarept/go-ddd-kit/pkg/core"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	errIntentionalRollback        = errors.New("intentional rollback error")
+	errSimulatedFailureThirdSave  = errors.New("simulated failure during third aggregate save")
 )
 
 // TestRunner defines the interface for running repository tests
@@ -817,7 +823,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 			require.NoError(t, err)
 			require.Equal(t, "tx-scope-rollback-value", loadedAgg.State().String)
 
-			return fmt.Errorf("intentional rollback error")
+			return errIntentionalRollback
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "intentional rollback error")
@@ -839,7 +845,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
   And all aggregate states should match the saved states`, func(t *testing.T) {
 		t.Parallel()
 		_, err := concurrentScope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				agg := NewTestAgg(core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)))
 				_, err := agg.SingleEventCommand(fmt.Sprintf("tx-scope-multi-value-%d", i))
 				require.NoError(t, err)
@@ -848,7 +854,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 				require.NoError(t, err)
 			}
 
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				loadedAgg := &TestAgg{}
 				err := repo.Load(ctx, core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)), loadedAgg)
 				require.NoError(t, err)
@@ -860,7 +866,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 		require.NoError(t, err)
 
 		repo := factory.Create(ctx)
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			loadedAgg := &TestAgg{}
 			err := repo.Load(ctx, core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)), loadedAgg)
 			require.NoError(t, err)
@@ -939,7 +945,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 			_, err = agg3.SingleEventCommand("value-3")
 			require.NoError(t, err)
 
-			return fmt.Errorf("simulated failure during third aggregate save")
+			return errSimulatedFailureThirdSave
 		})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated failure during third aggregate save")

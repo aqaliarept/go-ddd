@@ -16,7 +16,7 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "chmod +x .devcontainer/setup-user.sh && LOCAL_UID=${localEnv:UID} LOCAL_GID=${localEnv:GID} LOCAL_USER=${localEnv:USER} LOCAL_HOME=${localEnv:HOME} .devcontainer/setup-user.sh",
+	"postCreateCommand": "go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest",
 	// Environment variables for testcontainers and Go cache
 	"containerEnv": {
 		"TESTCONTAINERS_RYUK_DISABLED": "true",

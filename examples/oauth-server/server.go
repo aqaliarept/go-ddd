@@ -18,6 +18,8 @@ import (
 	"github.com/aqaliarept/go-ddd-kit/examples/oauth-server/domain"
 )
 
+var errCodeAndStateRequired = errors.New("code and state are required")
+
 func generateNonce() (string, error) {
 	bytes := make([]byte, 32)
 	_, err := rand.Read(bytes)
@@ -153,7 +155,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		state := r.URL.Query().Get("state")
 
 		if code == "" || state == "" {
-			return fmt.Errorf("code and state are required")
+			return errCodeAndStateRequired
 		}
 
 		token, exchangeErr := s.oauth.Exchange(ctx, code)

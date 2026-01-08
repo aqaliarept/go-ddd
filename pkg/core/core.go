@@ -28,6 +28,8 @@ var (
 	//       // Handle multiple events case - use EventsOfType instead
 	//   }
 	ErrTooManyEvents = errors.New("too many events")
+
+	errAggregateAlreadyInitialized = errors.New("aggregate is already initialized")
 )
 
 type (
@@ -380,8 +382,8 @@ func (a *Aggregate[T]) State() T {
 //	    return agg
 //	}
 func (a *Aggregate[T]) Initialize(id ID, created Event) {
-	if a.version > 0 {
-		panic(fmt.Errorf("aggregate is already initialized"))
+	if a.version > 0 || len(a.events) > 0 {
+		panic(errAggregateAlreadyInitialized)
 	}
 	a.id = id
 	a.version = 0
@@ -577,11 +579,12 @@ func PanicUnsupportedEvent(event Event) {
 func EventOfType[T any](pack EventPack) (T, error) {
 	e := EventsOfType[T](pack)
 	var evt T
-	if len(e) == 0 {
+	switch {
+	case len(e) == 0:
 		return evt, ErrNoEvents
-	} else if len(e) > 1 {
+	case len(e) > 1:
 		return evt, ErrTooManyEvents
-	} else {
+	default:
 		return e[0], nil
 	}
 }
@@ -605,8 +608,7 @@ func EventOfType[T any](pack EventPack) (T, error) {
 func EventsOfType[T any](pack EventPack) []T {
 	res := make([]T, 0)
 	for _, e := range pack {
-		switch evt := e.(type) {
-		case T:
+		if evt, ok := e.(T); ok {
 			res = append(res, evt)
 		}
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/aqaliarept/go-ddd-kit/examples/oauth-server/domain"
 )
+
+var errNoRefreshToken = errors.New("no refresh token for session")
 
 type RefreshTask struct {
 	SessionID    core.ID
@@ -69,7 +72,7 @@ func (w *RefreshWorker) processRefresh(task RefreshTask) {
 		}
 
 		if task.RefreshToken == "" {
-			return fmt.Errorf("no refresh token for session %s", task.SessionID)
+			return fmt.Errorf("%w %s", errNoRefreshToken, task.SessionID)
 		}
 
 		token, err := w.oauth.RefreshToken(ctx, task.RefreshToken)

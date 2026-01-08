@@ -1,7 +1,7 @@
-// Package test provides testing utilities and types for repository implementations.
 package test
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +9,11 @@ import (
 	mongopkg "github.com/aqaliarept/go-ddd-kit/pkg/mongo"
 	postgrespkg "github.com/aqaliarept/go-ddd-kit/pkg/postgres"
 	redispkg "github.com/aqaliarept/go-ddd-kit/pkg/redis"
+)
+
+var (
+	errUnsupportedSchemaVersion = errors.New("unsupported schema version")
+	errMigratedStateEmpty       = errors.New("migrated state from V1 has empty ValueV1")
 )
 
 // StateV1 represents version 1 of the test state for schema migration testing
@@ -31,15 +36,15 @@ func (s *StateV1) Apply(event core.Event) {
 // Restore implements StateRestorer interface
 // The private 'value' field is used to test internal state transformations during restoration
 func (s *StateV1) Restore(schemaVersion core.SchemaVersion, restoreFunc func(state core.StatePtr) error) error {
-	switch schemaVersion {
-	case core.DefaultSchemaVersion:
-		err := restoreFunc(s)
-		if err != nil {
-			return err
+		switch schemaVersion {
+		case core.DefaultSchemaVersion:
+			err := restoreFunc(s)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%w: %d", errUnsupportedSchemaVersion, schemaVersion)
 		}
-	default:
-		return fmt.Errorf("unsupported schema version: %d", schemaVersion)
-	}
 	s.value = strings.ToUpper(s.ValueV1)
 	return nil
 }
@@ -94,7 +99,7 @@ func (s *StateV2) Restore(schemaVersion core.SchemaVersion, restoreFunc func(sta
 			return err
 		}
 		if stateV1.ValueV1 == "" {
-			return fmt.Errorf("migrated state from V1 has empty ValueV1")
+			return errMigratedStateEmpty
 		}
 		s.ValueV2 = stateV1.ValueV1
 	case StateV2SchemaVersion:
@@ -103,7 +108,7 @@ func (s *StateV2) Restore(schemaVersion core.SchemaVersion, restoreFunc func(sta
 			return err
 		}
 	default:
-		return fmt.Errorf("unsupported schema version: %d", schemaVersion)
+		return fmt.Errorf("%w: %d", errUnsupportedSchemaVersion, schemaVersion)
 	}
 	s.value = strings.ToUpper(s.ValueV2)
 	return nil
