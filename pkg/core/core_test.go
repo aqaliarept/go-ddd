@@ -444,8 +444,6 @@ func TestAggregateInitializePanic(t *testing.T) {
 		Then it should panic
 	`, func(t *testing.T) {
 		agg := newTestAgg("id")
-		_, _ = agg.SingleEventCommand("test")
-
 		require.PanicsWithError(t, "aggregate is already initialized", func() {
 			agg.Initialize("new-id", Created{})
 		})
@@ -593,12 +591,15 @@ func TestAggregateVersion(t *testing.T) {
 		require.Equal(t, core.Version(0), agg.Version())
 
 		for i := range 10 {
-			_, _ = agg.SingleEventCommand("test" + strconv.Itoa(i))
-			agg.Store(func(id core.ID, aggregate core.AggregatePtr, storageState core.StatePtr, ep core.EventPack, v core.Version, sv core.SchemaVersion) error {
+			_, err := agg.SingleEventCommand("test" + strconv.Itoa(i))
+			require.NoError(t, err)
+			err = agg.Store(func(id core.ID, aggregate core.AggregatePtr, storageState core.StatePtr, ep core.EventPack, v core.Version, sv core.SchemaVersion) error {
 				return nil
 			})
+			require.NoError(t, err)
 		}
 		require.Equal(t, core.Version(10), agg.Version())
+		require.Len(t, agg.Events(), 0)
 	})
 }
 
@@ -700,7 +701,7 @@ func BenchmarkAggregate(b *testing.B) {
 	b.Run("command allocations", func(b *testing.B) {
 		b.ReportAllocs()
 		agg := newTestAgg("id")
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_, err := agg.MultipleEventsCommand("val")
 			if err != nil {
 				b.Fatalf("unexpected error: %v", err)
@@ -713,7 +714,7 @@ func BenchmarkAggregate(b *testing.B) {
 
 		agg := newTestAgg("id")
 		r := core.Restorer(agg)
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			Restore(r)
 		}
 	})
@@ -721,7 +722,7 @@ func BenchmarkAggregate(b *testing.B) {
 	b.Run("command store allocations", func(b *testing.B) {
 		b.ReportAllocs()
 		agg := newTestAgg("id")
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			err := agg.Store(func(i core.ID, aggregate core.AggregatePtr, storageState core.StatePtr, ep core.EventPack, v core.Version, sv core.SchemaVersion) error {
 				_, ok := storageState.(*testAggState)
 				if !ok {

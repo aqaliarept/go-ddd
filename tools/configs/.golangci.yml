@@ -7,25 +7,28 @@ linters:
     - err113
     - gosec
     - testpackage
-    # - contextcheck
-    # - gochecknoglobals
-    # - gochecknoinits
-    # - gocritic
-    # - godoclint
-    # - iface
-    # - intrange
-    # - modernize
-    # - nilerr
-    # - nilnesserr
-    # - nilnil
-    # - recvcheck
-    # - exhaustruct
+    - contextcheck
+    - gochecknoglobals
+    - gochecknoinits
+    - gocritic
+    - godoclint
+    - iface
+    - intrange
+    - modernize
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - recvcheck
+    - exhaustruct
   settings:
     exhaustruct:
       allow-empty-returns: false
       allow-empty-declarations: false
       exclude:
-        - .*_test\.go$
+        - .*test.*
+        - .*domain\.Session.*
+        - .*http\.Server.*
+        - .*http\.Cookie.*
     staticcheck:
       checks:
         - all

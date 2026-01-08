@@ -14,6 +14,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
+var (
+	errContextHasSession = errors.New("context already has a session")
+	errTransactionInProgress = errors.New("transaction in progress")
+	errNoSession = errors.New("no session found in context")
+	errSessionMismatch = errors.New("session mismatch")
+)
+
 var _ core.Repository = (*repository)(nil)
 var _ core.Transactional = (*repository)(nil)
 
@@ -33,7 +40,6 @@ func WithCollectionName(collectionName CollectionName) core.StorageOption {
 // Tx holds a MongoDB session + session context to run operations in a transaction.
 type tx struct {
 	session *mongo.Session
-	ctx     context.Context
 }
 
 type repository struct {
@@ -43,8 +49,12 @@ type repository struct {
 
 // Begin implements Transactional.
 func (r *repository) Begin(ctx context.Context) (context.Context, error) {
+	sess := mongo.SessionFromContext(ctx)
+	if sess != nil {
+		return ctx, errContextHasSession
+	}
 	if r.tx != nil {
-		panic("transaction in progress")
+		return ctx, errTransactionInProgress
 	}
 	// Start a session
 	sess, err := r.db.Client().StartSession()
@@ -65,13 +75,28 @@ func (r *repository) Begin(ctx context.Context) (context.Context, error) {
 		sess.EndSession(ctx)
 		return ctx, err
 	}
-	r.tx = &tx{session: sess, ctx: sctx}
+	r.tx = &tx{session: sess}
 	return sctx, nil
+}
+
+func (r *repository) getSession(ctx context.Context) (*mongo.Session, error) {
+	sess := mongo.SessionFromContext(ctx)
+	if r.tx == nil && sess == nil {
+		return nil, errNoSession
+	}
+	if (r.tx == nil && sess != nil) || r.tx.session != sess  {
+		return nil, errSessionMismatch
+	}
+	return sess, nil
 }
 
 // Commit implements Transactional.
 func (r *repository) Commit(ctx context.Context) error {
-	err := r.tx.session.CommitTransaction(r.tx.ctx)
+	sess, err := r.getSession(ctx)
+	if err != nil {
+		return err
+	}
+	err = sess.CommitTransaction(ctx)
 	var mongoErr mongo.CommandError
 	if errors.As(err, &mongoErr) {
 		switch mongoErr.Code {
@@ -81,16 +106,19 @@ func (r *repository) Commit(ctx context.Context) error {
 			err = fmt.Errorf("%w: %w", core.ErrTransactionNotFound, err)
 		}
 	}
-
-	r.tx.session.EndSession(ctx)
+	sess.EndSession(ctx)
 	r.tx = nil
 	return err
 }
 
 // Rollback implements Transactional.
 func (r *repository) Rollback(ctx context.Context) error {
-	err := r.tx.session.AbortTransaction(r.tx.ctx)
-	r.tx.session.EndSession(ctx)
+	sess, err := r.getSession(ctx)
+	if err != nil {
+		return err
+	}
+	err = sess.AbortTransaction(ctx)
+	sess.EndSession(ctx)
 	r.tx = nil
 
 	// If the transaction was already aborted (e.g., due to WriteConflict),
@@ -128,14 +156,13 @@ func getCollectionName(storageOptions []core.StorageOption) string {
 
 // Load implements Repository.
 func (r *repository) Load(ctx context.Context, id core.ID, target core.Restorer, options ...core.LoadOption) error {
-	operationCtx := ctx
-	if r.tx != nil {
-		operationCtx = r.tx.ctx
+	_, err := r.getSession(ctx)
+	if err != nil && !errors.Is(err, errNoSession) {
+		return err
 	}
-
 	collectionName := getCollectionName(target.StorageOptions())
 	var doc AggregateDocument[bson.RawValue]
-	err := r.db.Collection(collectionName).FindOne(operationCtx, bson.M{"_id": string(id)}).Decode(&doc)
+	err = r.db.Collection(collectionName).FindOne(ctx, bson.M{"_id": string(id)}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return core.ErrAggregateNotFound
@@ -154,9 +181,9 @@ func (r *repository) Load(ctx context.Context, id core.ID, target core.Restorer,
 // Save implements Repository.
 func (r *repository) Save(ctx context.Context, storer core.Storer, options ...core.SaveOption) error {
 	return storer.Store(func(identifier core.ID, aggregate core.AggregatePtr, storageState core.StatePtr, events core.EventPack, currentVersion core.Version, schemaVersion core.SchemaVersion) error {
-		operationCtx := ctx
-		if r.tx != nil {
-			operationCtx = r.tx.ctx
+		_, err := r.getSession(ctx)
+		if err != nil && !errors.Is(err, errNoSession) {
+			return err
 		}
 		collectionName := getCollectionName(storer.StorageOptions())
 		collection := r.db.Collection(collectionName)
@@ -166,8 +193,7 @@ func (r *repository) Save(ctx context.Context, storer core.Storer, options ...co
 			if currentVersion == 0 {
 				return nil
 			}
-
-			return r.removeWithVersionCheck(operationCtx, collection, identifier, currentVersion)
+			return r.removeWithVersionCheck(ctx, collection, identifier, currentVersion)
 		}
 
 		stateBytes, err := bson.Marshal(storageState)
@@ -188,10 +214,10 @@ func (r *repository) Save(ctx context.Context, storer core.Storer, options ...co
 		}
 
 		if currentVersion == 0 {
-			return r.insertNew(operationCtx, collection, doc)
+			return r.insertNew(ctx, collection, doc)
 		}
 
-		return r.updateExisting(operationCtx, collection, identifier, doc, currentVersion)
+		return r.updateExisting(ctx, collection, identifier, doc, currentVersion)
 	})
 }
 
@@ -260,6 +286,7 @@ func (r *repository) updateExisting(ctx context.Context, collection *mongo.Colle
 func newRepository(db *mongo.Database) core.Repository {
 	return &repository{
 		db: db,
+		tx: nil,
 	}
 }
 

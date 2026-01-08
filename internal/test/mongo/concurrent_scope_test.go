@@ -2,7 +2,6 @@ package mongo_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type ConcurrentScopeConfig struct {
@@ -85,11 +83,11 @@ func TestMongoRepository_ConcurrentScope(t *testing.T) {
 		tx0, ok := repo0.(core.Transactional)
 		require.True(t, ok)
 
-		tctx, err := tx0.Begin(ctx)
+		tx0ctx, err := tx0.Begin(ctx)
 		require.NoError(t, err)
 
 		agg0 := &testpkg.TestAgg{}
-		err = repo0.Load(tctx, id, agg0)
+		err = repo0.Load(tx0ctx, id, agg0)
 		require.NoError(t, err)
 
 		_, err = agg0.SingleEventCommand("test-agg-value-0")
@@ -100,27 +98,27 @@ func TestMongoRepository_ConcurrentScope(t *testing.T) {
 		tx1, ok := repo1.(core.Transactional)
 		require.True(t, ok)
 
-		tctx, err = tx1.Begin(ctx)
+		tx1ctx, err := tx1.Begin(ctx)
 		require.NoError(t, err)
 
 		agg1 := &testpkg.TestAgg{}
-		err = repo1.Load(tctx, id, agg1)
+		err = repo1.Load(tx1ctx, id, agg1)
 		require.NoError(t, err)
 
 		_, err = agg1.SingleEventCommand("test-agg-value-1")
 		require.NoError(t, err)
 
-		err = repo0.Save(tctx, agg0)
+		err = repo0.Save(tx0ctx, agg0)
 		require.NoError(t, err)
 
-		err = repo1.Save(tctx, agg1)
+		err = repo1.Save(tx1ctx, agg1)
 		require.Error(t, err)
 		require.ErrorIs(t, err, core.ErrConcurrentModification)
 
-		err = tx0.Commit(tctx)
+		err = tx0.Commit(tx0ctx)
 		require.NoError(t, err)
 
-		err = tx1.Commit(tctx)
+		err = tx1.Commit(tx1ctx)
 		require.Error(t, err)
 		require.ErrorIs(t, err, core.ErrTransactionNotFound)
 	})
@@ -238,14 +236,13 @@ func TestMongoRepository_ConcurrentScope(t *testing.T) {
 
 	t.Run("Concurrent scope with concurrent access simulation", func(t *testing.T) {
 		ctx := context.Background()
-
-		repo := factory.Create(ctx)
-
+		outsideRepo := factory.Create(ctx)
+		outsideCtx := ctx
 		agg := testpkg.NewTestAgg("concurrent-scope-concurrent-id")
 		_, err := agg.SingleEventCommand("initial-value")
 		require.NoError(t, err)
 
-		err = repo.Save(ctx, agg)
+		err = outsideRepo.Save(outsideCtx, agg)
 		require.NoError(t, err)
 
 		_, err = concurrentScope.Run(ctx,
@@ -254,48 +251,30 @@ func TestMongoRepository_ConcurrentScope(t *testing.T) {
 				err = repo.Load(ctx, "concurrent-scope-concurrent-id", txAgg)
 				require.NoError(t, err)
 
-				outsideRepo := factory.Create(ctx)
 				outsideAgg := &testpkg.TestAgg{}
-				err = outsideRepo.Load(ctx, "concurrent-scope-concurrent-id", outsideAgg)
+				err = outsideRepo.Load(outsideCtx, "concurrent-scope-concurrent-id", outsideAgg)
 				require.NoError(t, err)
 
-				_, err = outsideAgg.SingleEventCommand("outside-value")
-				require.NoError(t, err)
+				if outsideAgg.State().String == "initial-value" {
+					_, err = outsideAgg.SingleEventCommand("outside-value")
+					require.NoError(t, err)
 
-				err = outsideRepo.Save(ctx, outsideAgg)
-				require.NoError(t, err)
-
+					err = outsideRepo.Save(outsideCtx, outsideAgg)
+					require.NoError(t, err)
+				}
 				_, err = txAgg.SingleEventCommand("tx-value")
 				require.NoError(t, err)
 
-				err = repo.Save(ctx, txAgg)
-				require.Error(t, err)
-				if !errors.Is(err, core.ErrConcurrentModification) {
-					var mongoErr mongo.CommandError
-					require.True(t, errors.As(err, &mongoErr))
-					require.Equal(t, 112, mongoErr.Code,
-						"Expected ErrConcurrentModification or WriteConflict (112), got %v", err)
-				}
-
-				return err
+				return repo.Save(ctx, txAgg)
 			})
 
-		require.Error(t, err)
-
-		if errors.Is(err, core.ErrConcurrentModification) {
-		} else {
-			var mongoErr mongo.CommandError
-			require.True(t, errors.As(err, &mongoErr))
-			require.Equal(t, 251, mongoErr.Code,
-				"Expected ErrConcurrentModification or NoSuchTransaction (251), got %v", err)
-		}
-
+		require.NoError(t, err)
 		loadedAgg := &testpkg.TestAgg{}
-		err = repo.Load(ctx, "concurrent-scope-concurrent-id", loadedAgg)
+		err = outsideRepo.Load(outsideCtx, "concurrent-scope-concurrent-id", loadedAgg)
 		require.NoError(t, err)
 		state := loadedAgg.State()
 		require.NotEqual(t, "outside-value", state.String)
-		require.Equal(t, "initial-value", state.String)
+		require.Equal(t, "tx-value", state.String)
 	})
 }
 

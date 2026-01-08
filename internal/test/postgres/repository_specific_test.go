@@ -132,7 +132,7 @@ func TestPostgresRepositorySpecific(t *testing.T) {
   Then the operation should return a retrieval error`, func(t *testing.T) {
 		t.Parallel()
 		repo := factory.Create(ctx)
-		errorCtx, cancel := context.WithCancel(context.Background())
+		errorCtx, cancel := context.WithCancel(ctx)
 		cancel()
 
 		agg := newPostgresTestAggForLoad()

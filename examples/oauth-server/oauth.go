@@ -20,6 +20,8 @@ func NewOAuthClient(cfg *Config) *OAuthClient {
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  cfg.OAuthAuthURL(),
 			TokenURL: cfg.OAuthTokenURL(),
+			AuthStyle: oauth2.AuthStyleAutoDetect,
+			DeviceAuthURL: "",
 		},
 		Scopes: []string{"openid", "profile", "email"},
 	}
@@ -42,6 +44,7 @@ func (c *OAuthClient) Exchange(ctx context.Context, code string) (*oauth2.Token,
 }
 
 func (c *OAuthClient) RefreshToken(ctx context.Context, refreshToken string) (*oauth2.Token, error) {
+	//nolint:exhaustruct
 	tokenSource := c.config.TokenSource(ctx, &oauth2.Token{
 		RefreshToken: refreshToken,
 	})

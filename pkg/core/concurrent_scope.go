@@ -301,6 +301,7 @@ func (r *repoDecorator) Load(ctx context.Context, id ID, restorer Restorer, opti
 func (r *repoDecorator) Save(ctx context.Context, storer Storer, options ...SaveOption) error {
 	decoratedStorer := &storerDecorator{
 		Storer: storer,
+		pack:   nil,
 	}
 	err := r.inner.Save(ctx, decoratedStorer, options...)
 	if err != nil {
@@ -397,28 +398,29 @@ func (c *ConcurrentScope) Run(ctx context.Context, runFunc func(ctx context.Cont
 	var changes map[AggregatePtr][]EventPack
 	err := retry.Do(
 		func() error {
+			sctx := ctx
 			changes = make(map[AggregatePtr][]EventPack)
 			repo := &repoDecorator{
 				changes:  changes,
 				policies: opts.policies,
-				inner:    c.factory.Create(ctx),
+				inner:    c.factory.Create(sctx),
 			}
 			if transactional, ok := repo.inner.(Transactional); ok {
 				var err error
-				ctx, err = transactional.Begin(ctx)
+				sctx, err = transactional.Begin(sctx)
 				if err != nil {
 					return err
 				}
-				err = runFunc(ctx, repo)
+				err = runFunc(sctx, repo)
 				if err != nil {
-					rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opts.rollbackTimeout)
+					rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(sctx), opts.rollbackTimeout)
 					defer cancel()
 					rollbackErr := transactional.Rollback(rollbackCtx)
 					return errors.Join(err, rollbackErr)
 				}
-				return transactional.Commit(ctx)
+				return transactional.Commit(sctx)
 			}
-			return runFunc(ctx, repo)
+			return runFunc(sctx, repo)
 		},
 		opts.retryOpts...,
 	)

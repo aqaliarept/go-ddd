@@ -845,7 +845,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
   And all aggregate states should match the saved states`, func(t *testing.T) {
 		t.Parallel()
 		_, err := concurrentScope.Run(ctx, func(ctx context.Context, repo core.Repository) error {
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				agg := NewTestAgg(core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)))
 				_, err := agg.SingleEventCommand(fmt.Sprintf("tx-scope-multi-value-%d", i))
 				require.NoError(t, err)
@@ -854,7 +854,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 				require.NoError(t, err)
 			}
 
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				loadedAgg := &TestAgg{}
 				err := repo.Load(ctx, core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)), loadedAgg)
 				require.NoError(t, err)
@@ -866,7 +866,7 @@ func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
 		require.NoError(t, err)
 
 		repo := factory.Create(ctx)
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			loadedAgg := &TestAgg{}
 			err := repo.Load(ctx, core.ID(fmt.Sprintf("tx-scope-multi-id-%d", i)), loadedAgg)
 			require.NoError(t, err)

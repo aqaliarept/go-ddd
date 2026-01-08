@@ -89,16 +89,14 @@ type mockOAuthProvider struct {
 }
 
 func newMockOAuthProvider(t *testing.T) *mockOAuthProvider {
-	mock := &mockOAuthProvider{
-		code: uuid.New().String(),
-	}
+	code:= uuid.New().String()
 
-	mock.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/authorize":
 			state := r.URL.Query().Get("state")
 			redirectURI := r.URL.Query().Get("redirect_uri")
-			redirectURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, mock.code, state)
+			redirectURL := fmt.Sprintf("%s?code=%s&state=%s", redirectURI, code, state)
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 		case "/token":
 			var req struct {
@@ -138,6 +136,10 @@ func newMockOAuthProvider(t *testing.T) *mockOAuthProvider {
 		}
 	}))
 
+	mock := &mockOAuthProvider{
+		server: server,
+		code:   code,
+	}
 	t.Cleanup(func() {
 		mock.server.Close()
 	})
@@ -150,9 +152,7 @@ type mockBackend struct {
 }
 
 func newMockBackend(t *testing.T) *mockBackend {
-	mock := &mockBackend{}
-
-	mock.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || len(authHeader) < 8 || authHeader[:7] != "Bearer " {
 			http.Error(w, "missing or invalid authorization", http.StatusUnauthorized)
@@ -167,7 +167,9 @@ func newMockBackend(t *testing.T) *mockBackend {
 			"token":   authHeader[7:],
 		})
 	}))
-
+	mock := &mockBackend{
+		server: server,
+	}
 	t.Cleanup(func() {
 		mock.server.Close()
 	})

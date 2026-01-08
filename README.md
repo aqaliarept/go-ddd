@@ -1,4 +1,5 @@
 ## `go-ddd-kit`: toolkit for Domain-Driven Design in Go
+[![CI](https://github.com/aqaliarept/go-ddd-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/aqaliarept/go-ddd-kit/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/aqaliarept/go-ddd-kit.svg)](https://pkg.go.dev/github.com/aqaliarept/go-ddd-kit/pkg/core)
 [![codecov](https://codecov.io/gh/aqaliarept/go-ddd-kit/branch/main/graph/badge.svg)](https://codecov.io/gh/aqaliarept/go-ddd-kit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aqaliarept/go-ddd-kit/pkg/core)](https://goreportcard.com/report/github.com/aqaliarept/go-ddd-kit/pkg/core)

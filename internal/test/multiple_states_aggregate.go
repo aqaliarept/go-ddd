@@ -1,4 +1,3 @@
-// Package test provides testing utilities and types for repository implementations.
 package test
 
 import (
