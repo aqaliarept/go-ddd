@@ -759,8 +759,8 @@ func RunBaseTests(t *testing.T, runner TestRunner) {
 	})
 }
 
-// RunBaseConcurrentTests runs all base concurrent scope tests
-func RunBaseConcurrentTests(t *testing.T, runner ConcurrentTestRunner) {
+// RunBaseTransactionalTests runs all base concurrent scope tests
+func RunBaseTransactionalTests(t *testing.T, runner ConcurrentTestRunner) {
 	ctx := runner.SetupContext(t)
 	concurrentScope := runner.SetupConcurrentScope(t)
 	factory := runner.SetupRepositoryFactory(t)

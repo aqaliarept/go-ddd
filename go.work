@@ -7,4 +7,5 @@ use (
 	./pkg/mongo
 	./pkg/postgres
 	./pkg/redis
+	./pkg/sqlite
 )

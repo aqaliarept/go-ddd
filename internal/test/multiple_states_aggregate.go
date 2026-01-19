@@ -9,6 +9,7 @@ import (
 	mongopkg "github.com/aqaliarept/go-ddd-kit/pkg/mongo"
 	postgrespkg "github.com/aqaliarept/go-ddd-kit/pkg/postgres"
 	redispkg "github.com/aqaliarept/go-ddd-kit/pkg/redis"
+	sqlitepkg "github.com/aqaliarept/go-ddd-kit/pkg/sqlite"
 )
 
 var (
@@ -130,6 +131,7 @@ func (s *StateTestAggV1) StorageOptions() []core.StorageOption {
 		mongopkg.WithCollectionName("test_agg"),
 		postgrespkg.WithTableName("test_agg"),
 		redispkg.WithNamespace("test_agg"),
+		sqlitepkg.WithTableName("test_agg"),
 	}
 }
 
@@ -150,6 +152,7 @@ func (s *StateTestAggV2) StorageOptions() []core.StorageOption {
 		mongopkg.WithCollectionName("test_agg"),
 		postgrespkg.WithTableName("test_agg"),
 		redispkg.WithNamespace("test_agg"),
+		sqlitepkg.WithTableName("test_agg"),
 	}
 }
 

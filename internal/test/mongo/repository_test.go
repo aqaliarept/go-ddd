@@ -149,5 +149,5 @@ func TestMongoRepository(t *testing.T) {
 	}
 
 	testpkg.RunBaseTests(t, runner)
-	testpkg.RunBaseConcurrentTests(t, runner)
+	testpkg.RunBaseTransactionalTests(t, runner)
 }
